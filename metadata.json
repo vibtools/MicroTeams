@@ -1,0 +1,6 @@
+{
+  "name": "Team Dark Devil",
+  "description": "Microjob, email sending, and SMS sending worker team management platform",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

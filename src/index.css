@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+:root {
+  --bg-app: #0D1117;
+  --bg-deep: #0B0F17;
+  --bg-surface-card: #161B22;
+  --bg-surface-field: #12171F;
+  --bg-surface-hover: #181F2B;
+  --bg-surface-soft: #11161D;
+  --border-card: #30363D;
+  --border-subtle: #21262D;
+  --border-inner: #2A303C;
+  --text-primary: #E6EDF3;
+  --text-content: #C9D1D9;
+  --text-muted: #8B949E;
+  --text-accent: #38BDF8;
+  --color-primary: #2563EB;
+  --color-primary-hover: #1D4ED8;
+  --color-danger: #EF4444;
+  --color-success: #22C55E;
+  --color-warning: #F59E0B;
+}
+
+body {
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: 1.46;
+  font-weight: 300;
+  background-color: #0D1117;
+  color: #C9D1D9;
+  overflow-x: hidden;
+}
+
+/* Custom scrollbars matching compact dark spec */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0B0F17;
+}
+::-webkit-scrollbar-thumb {
+  background: #30363D;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #46505D;
+}
+
+/* Zero shadow contract */
+* {
+  box-shadow: none !important;
+}
+
+/* Strict font weight limit per user mandate: max 300 */
+b, strong, h1, h2, h3, h4, h5, h6, button, th {
+  font-weight: 300 !important;
+}
+
+/* Compact utility classes */
+.vib-btn-sm {
+  min-height: 28px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 300;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.vib-btn-md {
+  min-height: 32px;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 300;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.vib-input {
+  min-height: 32px;
+  height: 32px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 10px;
+  padding-right: 10px;
+  font-size: 12px;
+  font-weight: 300;
+  background: #12171F;
+  color: #E6EDF3;
+  border: 1px solid #30363D;
+  border-radius: 6px;
+  width: 100%;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.vib-input:focus {
+  border-color: #38BDF8;
+  outline: none;
+  background: #151C28;
+}
+.vib-input::placeholder {
+  color: #6E7681;
+}
+
+/* Internal icon padding rules - ensures placeholders and text never overlap icons */
+.vib-input.pl-7, input.pl-7 { padding-left: 28px !important; }
+.vib-input.pl-8, input.pl-8 { padding-left: 32px !important; }
+.vib-input.pl-9, input.pl-9 { padding-left: 36px !important; }
+.vib-input.pl-10, input.pl-10 { padding-left: 40px !important; }
+.vib-input.pl-11, input.pl-11 { padding-left: 44px !important; }
+.vib-input.pl-12, input.pl-12 { padding-left: 48px !important; }
+
+.vib-input.pr-7, input.pr-7 { padding-right: 28px !important; }
+.vib-input.pr-8, input.pr-8 { padding-right: 32px !important; }
+.vib-input.pr-9, input.pr-9 { padding-right: 36px !important; }
+.vib-input.pr-10, input.pr-10 { padding-right: 40px !important; }
+.vib-input.pr-11, input.pr-11 { padding-right: 44px !important; }
+.vib-input.pr-12, input.pr-12 { padding-right: 48px !important; }
+
+.vib-card {
+  background: #161B22;
+  border: 1px solid #30363D;
+  border-radius: 8px;
+}
+
+.vib-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 300;
+}
+
+/* Match icon weight to lighter font weight */
+.lucide {
+  stroke-width: 1.5px !important;
+}
+
+/* Global Heading Enforcement - Premium Professional Font */
+h1, h2, h3, h4, h5, h6, .font-heading {
+  font-family: 'Plus Jakarta Sans', sans-serif !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em;
+}
