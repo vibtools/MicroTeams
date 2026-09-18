@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getEmbedVideoUrl } from '../utils';
+import { showToast } from '../lib/toast';
 import {
   LayoutDashboard,
   Briefcase,
@@ -231,6 +232,7 @@ export const UserPanel: React.FC<UserPanelProps> = ({ user, onRefreshUser }) => 
       }
 
       setCollectMsg({ type: 'success', text: `Successfully collected ${collectQuantity} records!` });
+      showToast(`Successfully collected ${collectQuantity} records!`, 'success');
       onRefreshUser();
       await fetchData();
 
@@ -240,6 +242,7 @@ export const UserPanel: React.FC<UserPanelProps> = ({ user, onRefreshUser }) => 
       }, 1200);
     } catch (err: any) {
       setCollectMsg({ type: 'error', text: err.message });
+      showToast(err.message || 'Failed to collect data', 'error');
     } finally {
       setCollectLoading(false);
     }
@@ -406,12 +409,14 @@ export const UserPanel: React.FC<UserPanelProps> = ({ user, onRefreshUser }) => 
       if (!res.ok) throw new Error(data.error || 'Submission failed');
 
       setSubmitMsg({ type: 'success', text: 'Work proof submitted successfully. Leader will review.' });
+      showToast('Work proof submitted successfully. Leader will review.', 'success');
       setSubmitProofNotes('');
       setSubmitProofFiles([]);
       onRefreshUser();
       await fetchData();
     } catch (err: any) {
       setSubmitMsg({ type: 'error', text: err.message });
+      showToast(err.message || 'Submission failed', 'error');
     } finally {
       setSubmitLoading(false);
     }

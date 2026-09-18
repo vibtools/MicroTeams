@@ -10,6 +10,7 @@ import { WorkerLoginForm } from './components/WorkerLoginForm';
 import { PublicFooter } from './components/PublicFooter';
 import { User } from './types';
 import { updatePageSEO } from './utils/seo';
+import { ToastSystem, ToastMessage } from './components/ToastSystem';
 
 const resolveViewFromPath = (): NavViewMode => {
   const path = window.location.pathname.replace(/\/+$/, '');
@@ -108,6 +109,17 @@ export default function App() {
     }
   };
 
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const addToast = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success') => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts((prev) => [...prev, { id, message, type }]);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
   useEffect(() => {
     fetchOverview();
 
@@ -115,8 +127,19 @@ export default function App() {
       setCurrentView(resolveViewFromPath());
     };
 
+    const handleCustomToast = (e: Event) => {
+      const customEvent = e as CustomEvent<{ message: string; type: 'success' | 'error' | 'info' | 'warning' }>;
+      if (customEvent.detail) {
+        addToast(customEvent.detail.message, customEvent.detail.type);
+      }
+    };
+
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener('dd-toast', handleCustomToast as EventListener);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('dd-toast', handleCustomToast as EventListener);
+    };
   }, []);
 
   const handleLoginSuccess = (user: User) => {
@@ -279,6 +302,8 @@ export default function App() {
         onLoginSuccess={handleLoginSuccess}
         siteSettings={overviewStats.siteSettings}
       />
+
+      <ToastSystem toasts={toasts} onDismiss={removeToast} />
     </div>
   );
 }
