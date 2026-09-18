@@ -125,6 +125,39 @@ export const UserPanel: React.FC<UserPanelProps> = ({ user, onRefreshUser }) => 
   const [jobSearchQuery, setJobSearchQuery] = useState('');
   const [toolInput, setToolInput] = useState('');
   const [toolOutput, setToolOutput] = useState('');
+  const [cleanerReport, setCleanerReport] = useState<{
+    total: number;
+    valid: number;
+    duplicates: number;
+    invalid: number;
+    disposable: number;
+    validEmails: string[];
+    domainStats: Record<string, number>;
+  } | null>(null);
+  const [phoneReport, setPhoneReport] = useState<{
+    total: number;
+    valid: number;
+    invalid: number;
+    validPhones: string[];
+    prefixStats: Record<string, number>;
+  } | null>(null);
+  const [spamReport, setSpamReport] = useState<{
+    totalWords: number;
+    charCount: number;
+    triggerCount: number;
+    riskScore: number;
+    triggersFound: { word: string; count: number; severity: 'high' | 'medium' | 'low' }[];
+    readabilityScore: string;
+  } | null>(null);
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<'manual' | '30s'>('manual');
+
+  useEffect(() => {
+    if (autoRefreshInterval !== '30s') return;
+    const interval = setInterval(() => {
+      fetchData();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [autoRefreshInterval]);
 
   // Fetch all user panel data
   const fetchData = async () => {
@@ -394,6 +427,9 @@ export const UserPanel: React.FC<UserPanelProps> = ({ user, onRefreshUser }) => 
       const valid: string[] = [];
       let duplicates = 0;
       let invalid = 0;
+      let disposable = 0;
+      const domainStats: Record<string, number> = {};
+      const disposableDomains = ['tempmail.com', 'mailinator.com', '10minutemail.com', 'trashmail.com', 'dispostable.com', 'yopmail.com'];
 
       rawLines.forEach((line) => {
         const email = line.toLowerCase();
@@ -403,8 +439,24 @@ export const UserPanel: React.FC<UserPanelProps> = ({ user, onRefreshUser }) => 
           duplicates++;
         } else {
           seen.add(email);
-          valid.push(email);
+          const domain = email.split('@')[1] || 'unknown';
+          if (disposableDomains.includes(domain)) {
+            disposable++;
+          } else {
+            valid.push(email);
+            domainStats[domain] = (domainStats[domain] || 0) + 1;
+          }
         }
+      });
+
+      setCleanerReport({
+        total: rawLines.length,
+        valid: valid.length,
+        duplicates,
+        invalid,
+        disposable,
+        validEmails: valid,
+        domainStats,
       });
 
       setToolOutput(
@@ -412,48 +464,225 @@ export const UserPanel: React.FC<UserPanelProps> = ({ user, onRefreshUser }) => 
           valid.join('\n')
       );
     } else if (toolTab === 'phoneCleaner') {
-      const formatted = rawLines.map((line) => {
+      let validCount = 0;
+      let invalidCount = 0;
+      const validPhones: string[] = [];
+      const prefixStats: Record<string, number> = {};
+
+      rawLines.forEach((line) => {
         const digits = line.replace(/\D/g, '');
-        if (digits.length === 10) return `+1${digits}`;
-        if (digits.startsWith('1') && digits.length === 11) return `+${digits}`;
-        if (digits.startsWith('44')) return `+${digits}`;
-        if (digits.startsWith('880')) return `+${digits}`;
-        return `+${digits}`;
-      });
-      const unique = Array.from(new Set(formatted));
-      setToolOutput(`# Cleaned Phone List (${unique.length} records)\n` + unique.join('\n'));
-    } else if (toolTab === 'spamChecker') {
-      const spamWords = [
-        '100% free',
-        'free gift',
-        'earn money',
-        'act now',
-        'no risk',
-        'winner',
-        'cash bonus',
-        'urgent',
-        'risk free',
-        'buy now',
-        'guaranteed',
-        'million dollars',
-        'claim now',
-      ];
-      const found: string[] = [];
-      const lower = toolInput.toLowerCase();
-      spamWords.forEach((word) => {
-        if (lower.includes(word)) found.push(word);
+        if (digits.length < 7 || digits.length > 15) {
+          invalidCount++;
+        } else {
+          let formatted = '';
+          if (line.startsWith('+')) {
+            formatted = `+${digits}`;
+          } else if (digits.length === 10) {
+            formatted = `+1${digits}`;
+          } else if (digits.startsWith('1') && digits.length === 11) {
+            formatted = `+${digits}`;
+          } else {
+            formatted = `+${digits}`;
+          }
+          validCount++;
+          validPhones.push(formatted);
+          const prefix = formatted.substring(0, 3);
+          prefixStats[prefix] = (prefixStats[prefix] || 0) + 1;
+        }
       });
 
-      if (found.length === 0) {
-        setToolOutput('✅ Clean score: No obvious high-risk trigger keywords detected.');
-      } else {
-        setToolOutput(
-          `⚠️ Found ${found.length} trigger phrase(s):\n- ` +
-            found.join('\n- ') +
-            '\n\nRecommendation: Replace with neutral terminology.'
-        );
-      }
+      setPhoneReport({
+        total: rawLines.length,
+        valid: validCount,
+        invalid: invalidCount,
+        validPhones,
+        prefixStats,
+      });
+
+      setToolOutput(
+        `# Formatted E.164 Phones (${validCount} valid, ${invalidCount} invalid)\n` +
+          validPhones.join('\n')
+      );
+    } else if (toolTab === 'spamChecker') {
+      const text = toolInput.trim();
+      const lower = text.toLowerCase();
+      const words = text.split(/\s+/).filter(Boolean);
+
+      const spamKeywords: { word: string; severity: 'high' | 'medium' | 'low' }[] = [
+        { word: '100% free', severity: 'high' },
+        { word: 'free gift', severity: 'high' },
+        { word: 'earn money', severity: 'high' },
+        { word: 'act now', severity: 'high' },
+        { word: 'no risk', severity: 'medium' },
+        { word: 'winner', severity: 'high' },
+        { word: 'cash bonus', severity: 'high' },
+        { word: 'urgent', severity: 'medium' },
+        { word: 'risk free', severity: 'medium' },
+        { word: 'buy now', severity: 'high' },
+        { word: 'guaranteed', severity: 'medium' },
+        { word: 'million dollars', severity: 'high' },
+        { word: 'claim now', severity: 'high' },
+        { word: 'limited time', severity: 'low' },
+        { word: 'exclusive deal', severity: 'low' },
+        { word: 'congratulations', severity: 'high' },
+        { word: 'no obligation', severity: 'medium' },
+        { word: 'double your income', severity: 'high' },
+        { word: 'fast cash', severity: 'high' },
+      ];
+
+      const foundMap: Record<string, { count: number; severity: 'high' | 'medium' | 'low' }> = {};
+      let totalTriggers = 0;
+
+      spamKeywords.forEach((item) => {
+        const regex = new RegExp(item.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+        const matches = lower.match(regex);
+        if (matches && matches.length > 0) {
+          foundMap[item.word] = { count: matches.length, severity: item.severity };
+          totalTriggers += matches.length;
+        }
+      });
+
+      const triggersFound = Object.entries(foundMap).map(([word, data]) => ({
+        word,
+        count: data.count,
+        severity: data.severity,
+      }));
+
+      const riskScore = Math.min(100, Math.round((totalTriggers / Math.max(1, words.length / 15)) * 100));
+
+      setSpamReport({
+        totalWords: words.length,
+        charCount: text.length,
+        triggerCount: totalTriggers,
+        riskScore,
+        triggersFound,
+        readabilityScore: words.length > 50 ? 'Good (Professional)' : 'Short Copy',
+      });
+
+      setToolOutput(
+        `# Spam Trigger Scan Report\n- Total Words: ${words.length}\n- Risk Score: ${riskScore}%\n- Triggers Detected: ${totalTriggers}\n\n` +
+          (triggersFound.length === 0
+            ? 'No high-risk spam triggers detected.'
+            : triggersFound.map((t) => `- [${t.severity.toUpperCase()}] "${t.word}" (${t.count}x)`).join('\n'))
+      );
     }
+  };
+
+  const handleToolFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (text) {
+        setToolInput((prev) => (prev ? prev + '\n' + text : text));
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const exportCleanerResults = (format: 'txt' | 'csv' | 'xls') => {
+    if (!cleanerReport || cleanerReport.validEmails.length === 0) return;
+    let content = '';
+    let filename = `cleaned_emails.${format === 'xls' ? 'xls' : format}`;
+    let mime = 'text/plain';
+
+    if (format === 'txt') {
+      content = cleanerReport.validEmails.join('\n');
+      mime = 'text/plain';
+    } else if (format === 'csv') {
+      content = 'Email,Domain,MX_Status\n' + cleanerReport.validEmails.map((e) => `${e},${e.split('@')[1]},VALID_MX`).join('\n');
+      filename = 'cleaned_emails.csv';
+      mime = 'text/csv';
+    } else if (format === 'xls') {
+      content = 'Email\tDomain\tMX_Status\n' + cleanerReport.validEmails.map((e) => `${e}\t${e.split('@')[1]}\tVALID_MX`).join('\n');
+      filename = 'cleaned_emails.xls';
+      mime = 'application/vnd.ms-excel';
+    }
+
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copyCleanerResultsToClipboard = () => {
+    if (!cleanerReport || cleanerReport.validEmails.length === 0) return;
+    navigator.clipboard.writeText(cleanerReport.validEmails.join('\n'));
+    alert('Cleaned results copied to clipboard!');
+  };
+
+  const exportPhoneResults = (format: 'txt' | 'csv' | 'xls') => {
+    if (!phoneReport || phoneReport.validPhones.length === 0) return;
+    let content = '';
+    let filename = `formatted_phones.${format === 'xls' ? 'xls' : format}`;
+    let mime = 'text/plain';
+
+    if (format === 'txt') {
+      content = phoneReport.validPhones.join('\n');
+      mime = 'text/plain';
+    } else if (format === 'csv') {
+      content = 'Phone_E164,Status\n' + phoneReport.validPhones.map((p) => `${p},VALID_E164`).join('\n');
+      filename = 'formatted_phones.csv';
+      mime = 'text/csv';
+    } else if (format === 'xls') {
+      content = 'Phone_E164\tStatus\n' + phoneReport.validPhones.map((p) => `${p}\tVALID_E164`).join('\n');
+      filename = 'formatted_phones.xls';
+      mime = 'application/vnd.ms-excel';
+    }
+
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copyPhoneResultsToClipboard = () => {
+    if (!phoneReport || phoneReport.validPhones.length === 0) return;
+    navigator.clipboard.writeText(phoneReport.validPhones.join('\n'));
+    alert('Formatted E.164 phones copied to clipboard!');
+  };
+
+  const exportSpamResults = (format: 'txt' | 'csv' | 'xls') => {
+    if (!spamReport || spamReport.triggersFound.length === 0) return;
+    let content = '';
+    let filename = `spam_audit_report.${format === 'xls' ? 'xls' : format}`;
+    let mime = 'text/plain';
+
+    if (format === 'txt') {
+      content = `SPAM AUDIT REPORT\nRisk Score: ${spamReport.riskScore}%\nTotal Triggers: ${spamReport.triggerCount}\n\nTriggers:\n` +
+        spamReport.triggersFound.map((t) => `${t.severity.toUpperCase()}: ${t.word} (${t.count}x)`).join('\n');
+      mime = 'text/plain';
+    } else if (format === 'csv') {
+      content = 'Trigger_Phrase,Severity,Frequency\n' + spamReport.triggersFound.map((t) => `"${t.word}",${t.severity},${t.count}`).join('\n');
+      filename = 'spam_audit_report.csv';
+      mime = 'text/csv';
+    } else if (format === 'xls') {
+      content = 'Trigger_Phrase\tSeverity\tFrequency\n' + spamReport.triggersFound.map((t) => `${t.word}\t${t.severity}\t${t.count}`).join('\n');
+      filename = 'spam_audit_report.xls';
+      mime = 'application/vnd.ms-excel';
+    }
+
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copySpamResultsToClipboard = () => {
+    if (!spamReport) return;
+    const text = `Spam Audit Report - Risk Score: ${spamReport.riskScore}% (${spamReport.triggerCount} triggers found)`;
+    navigator.clipboard.writeText(text);
+    alert('Spam audit report copied to clipboard!');
   };
 
   // Filtered files for collection
@@ -772,6 +1001,23 @@ export const UserPanel: React.FC<UserPanelProps> = ({ user, onRefreshUser }) => 
                 <h3 className="text-[14px] text-[#E6EDF3] font-light">Jobs</h3>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center bg-[#161B22] border border-[#30363D] rounded-lg p-0.5 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setAutoRefreshInterval('manual')}
+                    className={`px-2 py-1 rounded transition-colors cursor-pointer ${autoRefreshInterval === 'manual' ? 'bg-[#21262D] text-[#E6EDF3]' : 'text-[#8B949E] hover:text-[#E6EDF3]'}`}
+                  >
+                    Manual
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAutoRefreshInterval('30s')}
+                    className={`px-2 py-1 rounded transition-colors cursor-pointer ${autoRefreshInterval === '30s' ? 'bg-[#238636] text-white' : 'text-[#8B949E] hover:text-[#E6EDF3]'}`}
+                  >
+                    30s Poll
+                  </button>
+                </div>
+
                 <div className="relative flex items-center">
                   <Search className="w-3.5 h-3.5 text-[#8B949E] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
@@ -779,12 +1025,12 @@ export const UserPanel: React.FC<UserPanelProps> = ({ user, onRefreshUser }) => 
                     placeholder="Search jobs..."
                     value={jobSearchQuery}
                     onChange={(e) => setJobSearchQuery(e.target.value)}
-                    className="vib-input pl-9 py-1.5 w-[200px]"
+                    className="vib-input pl-9 py-1.5 w-[180px]"
                   />
                 </div>
                 <span className="text-[11px] text-[#8B949E] font-mono px-2 py-1 rounded bg-[#161B22] border border-[#30363D]">
                   {jobs.filter((j) => j.status === 'active').length} Active
-</span>
+                </span>
               </div>
             </div>
 
@@ -2004,64 +2250,393 @@ export const UserPanel: React.FC<UserPanelProps> = ({ user, onRefreshUser }) => 
 
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Input Column */}
-                    <div className="flex flex-col h-full">
-                      <label className="flex items-center justify-between text-[11.5px] font-light text-[#E6EDF3] mb-2">
-                        <span>Input Raw Data</span>
-                        <span className="text-[#8B949E] font-mono text-[10px]">Max 50,000 lines</span>
-                      </label>
-                      <textarea
-                        value={toolInput}
-                        onChange={(e) => setToolInput(e.target.value)}
-                        placeholder={
-                          toolTab === 'emailCleaner'
-                            ? 'john@domain.com\nsmith@corp.com\njohn@domain.com\nbad-syntax'
-                            : toolTab === 'phoneCleaner'
-                            ? '01711223344\n+1 (800) 555-0199\n447911123401'
-                            : 'Congratulations! You won a 100% free cash bonus. Act now urgent!'
-                        }
-                        className="flex-1 w-full bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3 text-[12px] text-[#C9D1D9] font-mono placeholder-[#484F58] focus:outline-none focus:border-[#38BDF8] focus:ring-1 focus:ring-[#38BDF8] resize-none min-h-[250px]"
-                      />
+                  {toolTab === 'emailCleaner' ? (
+                    <div className="space-y-5">
+                      {/* Side-by-side 2-column compact grid for Input TextArea & File Upload */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {/* Column 1: Input TextArea */}
+                        <div className="flex flex-col bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3.5">
+                          <label className="flex items-center justify-between text-[11.5px] font-light text-[#E6EDF3] mb-2">
+                            <span>Manual Text Input</span>
+                            <span className="text-[#8B949E] font-mono text-[10px]">Paste raw emails</span>
+                          </label>
+                          <textarea
+                            value={toolInput}
+                            onChange={(e) => setToolInput(e.target.value)}
+                            placeholder="john@domain.com\nsmith@corp.com\njohn@domain.com\ninvalid-email"
+                            className="w-full bg-[#161B22] border border-[#30363D] rounded-[6px] p-2.5 text-[11.5px] text-[#C9D1D9] font-mono placeholder-[#484F58] focus:outline-none focus:border-[#38BDF8] resize-none h-[140px]"
+                          />
+                        </div>
+
+                        {/* Column 2: File Upload (.txt, .csv, .xlsx) */}
+                        <div className="flex flex-col bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3.5">
+                          <label className="flex items-center justify-between text-[11.5px] font-light text-[#E6EDF3] mb-2">
+                            <span>File Upload (.txt, .csv, .xlsx)</span>
+                            <span className="text-[#8B949E] font-mono text-[10px]">Auto-append lines</span>
+                          </label>
+                          <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-[#30363D] hover:border-[#38BDF8]/50 rounded-[6px] p-4 text-center bg-[#161B22] transition-colors relative cursor-pointer">
+                            <input
+                              type="file"
+                              accept=".txt,.csv,.xlsx,.xls"
+                              onChange={handleToolFileUpload}
+                              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                            />
+                            <Upload className="w-5 h-5 text-[#38BDF8] mb-1.5" />
+                            <div className="text-[12px] text-[#E6EDF3] font-light">Click or drop file here</div>
+                            <div className="text-[10px] text-[#8B949E] mt-0.5">Supports TXT, CSV, Excel records</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Execute Processor Button */}
                       <button
                         onClick={runTool}
-                        className="mt-3 bg-[#2563EB] hover:bg-[#1D4ED8] text-white py-2.5 rounded-[8px] font-light text-[13px] transition-colors shadow-sm w-full flex items-center justify-center gap-2"
+                        className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white py-2.5 rounded-[8px] font-light text-[12.5px] transition-colors shadow-sm w-full flex items-center justify-center gap-2 cursor-pointer"
                       >
                         <Play className="w-4 h-4" />
-                        Execute Processor
+                        Execute Email Duplicate &amp; MX Cleaner Engine
                       </button>
-                    </div>
 
-                    {/* Output Column */}
-                    <div className="flex flex-col h-full">
-                      <label className="flex items-center justify-between text-[11.5px] font-light text-[#E6EDF3] mb-2">
-                        <span>Processed Results</span>
-                        {toolOutput && <span className="text-[#34D399] font-mono text-[10px] flex items-center gap-1"><Check className="w-3 h-3" /> Completed</span>}
-                      </label>
-                      <div className="relative flex-1 flex flex-col">
-                        <textarea
-                          readOnly
-                          value={toolOutput}
-                          placeholder="Results will appear here..."
-                          className="flex-1 w-full bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3 text-[12px] text-[#38BDF8] font-mono placeholder-[#484F58] focus:outline-none resize-none min-h-[250px]"
-                        />
-                        {toolOutput && (
-                          <div className="absolute top-3 right-3">
-                            <button
-                              onClick={() => {
-                                navigator.clipboard.writeText(toolOutput);
-                                alert('Copied to clipboard!');
-                              }}
-                              className="bg-[#161B22] hover:bg-[#21262D] border border-[#30363D] text-[#C9D1D9] p-1.5 rounded-[6px] transition-colors shadow-sm"
-                              title="Copy to clipboard"
-                            >
-                              <Copy className="w-4 h-4" />
-                            </button>
+                      {/* Status Cards & Reports (No Result Textarea) */}
+                      {cleanerReport && (
+                        <div className="space-y-4 pt-3 border-t border-[#21262D]">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h4 className="text-[13px] text-[#E6EDF3] font-light flex items-center gap-2">
+                              <Check className="w-4 h-4 text-[#22C55E]" />
+                              Processor Report &amp; MX Analysis
+                            </h4>
+                            
+                            {/* Export Action Bar */}
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => exportCleanerResults('txt')}
+                                className="px-2.5 py-1 bg-[#161B22] hover:bg-[#21262D] border border-[#30363D] text-[#38BDF8] text-[11px] rounded-[6px] font-light flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                Export TXT
+                              </button>
+                              <button
+                                onClick={() => exportCleanerResults('csv')}
+                                className="px-2.5 py-1 bg-[#161B22] hover:bg-[#21262D] border border-[#30363D] text-[#22C55E] text-[11px] rounded-[6px] font-light flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                Export CSV
+                              </button>
+                              <button
+                                onClick={() => exportCleanerResults('xls')}
+                                className="px-2.5 py-1 bg-[#161B22] hover:bg-[#21262D] border border-[#30363D] text-[#F59E0B] text-[11px] rounded-[6px] font-light flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                Export Excel
+                              </button>
+                              <button
+                                onClick={copyCleanerResultsToClipboard}
+                                className="px-2.5 py-1 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-[11px] rounded-[6px] font-light flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Copy className="w-3 h-3" />
+                                Copy to Clipboard
+                              </button>
+                            </div>
                           </div>
-                        )}
-                      </div>
+
+                          {/* 4 Status Cards */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3">
+                              <div className="text-[11px] text-[#8B949E] mb-1">Total Processed</div>
+                              <div className="text-[18px] text-[#E6EDF3] font-mono">{cleanerReport.total}</div>
+                              <div className="text-[10px] text-[#8B949E] mt-0.5">Input lines parsed</div>
+                            </div>
+                            <div className="bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3">
+                              <div className="text-[11px] text-[#8B949E] mb-1">Valid MX Emails</div>
+                              <div className="text-[18px] text-[#22C55E] font-mono">{cleanerReport.valid}</div>
+                              <div className="text-[10px] text-[#22C55E] mt-0.5">Ready for dispatch</div>
+                            </div>
+                            <div className="bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3">
+                              <div className="text-[11px] text-[#8B949E] mb-1">Duplicates Removed</div>
+                              <div className="text-[18px] text-[#F59E0B] font-mono">{cleanerReport.duplicates}</div>
+                              <div className="text-[10px] text-[#F59E0B] mt-0.5">Exact matches dropped</div>
+                            </div>
+                            <div className="bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3">
+                              <div className="text-[11px] text-[#8B949E] mb-1">Invalid / Disposable</div>
+                              <div className="text-[18px] text-[#EF4444] font-mono">{cleanerReport.invalid + cleanerReport.disposable}</div>
+                              <div className="text-[10px] text-[#EF4444] mt-0.5">Syntax errors &amp; trash</div>
+                            </div>
+                          </div>
+
+                          {/* Domain breakdown summary */}
+                          <div className="bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3 space-y-2">
+                            <h5 className="text-[11.5px] text-[#E6EDF3] font-light">Top Valid Domains Breakdown</h5>
+                            <div className="flex flex-wrap gap-2">
+                              {Object.entries(cleanerReport.domainStats).slice(0, 8).map(([dom, count]) => (
+                                <span key={dom} className="px-2 py-1 bg-[#161B22] border border-[#30363D] rounded text-[10.5px] font-mono text-[#38BDF8]">
+                                  @{dom}: <strong className="text-[#E6EDF3]">{count}</strong>
+                                </span>
+                              ))}
+                              {Object.keys(cleanerReport.domainStats).length === 0 && (
+                                <span className="text-[11px] text-[#8B949E]">No valid domains found yet.</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  ) : toolTab === 'phoneCleaner' ? (
+                    <div className="space-y-5">
+                      {/* Side-by-side 2-column compact grid for Input TextArea & File Upload */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {/* Column 1: Input TextArea */}
+                        <div className="flex flex-col bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3.5">
+                          <label className="flex items-center justify-between text-[11.5px] font-light text-[#E6EDF3] mb-2">
+                            <span>Manual Text Input</span>
+                            <span className="text-[#8B949E] font-mono text-[10px]">Paste raw phone numbers</span>
+                          </label>
+                          <textarea
+                            value={toolInput}
+                            onChange={(e) => setToolInput(e.target.value)}
+                            placeholder="01711223344&#10;+1 (800) 555-0199&#10;447911123401"
+                            className="w-full bg-[#161B22] border border-[#30363D] rounded-[6px] p-2.5 text-[11.5px] text-[#C9D1D9] font-mono placeholder-[#484F58] focus:outline-none focus:border-[#38BDF8] resize-none h-[140px]"
+                          />
+                        </div>
+
+                        {/* Column 2: File Upload (.txt, .csv, .xlsx) */}
+                        <div className="flex flex-col bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3.5">
+                          <label className="flex items-center justify-between text-[11.5px] font-light text-[#E6EDF3] mb-2">
+                            <span>File Upload (.txt, .csv, .xlsx)</span>
+                            <span className="text-[#8B949E] font-mono text-[10px]">Auto-append lines</span>
+                          </label>
+                          <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-[#30363D] hover:border-[#38BDF8]/50 rounded-[6px] p-4 text-center bg-[#161B22] transition-colors relative cursor-pointer">
+                            <input
+                              type="file"
+                              accept=".txt,.csv,.xlsx,.xls"
+                              onChange={handleToolFileUpload}
+                              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                            />
+                            <Upload className="w-5 h-5 text-[#38BDF8] mb-1.5" />
+                            <div className="text-[12px] text-[#E6EDF3] font-light">Click or drop file here</div>
+                            <div className="text-[10px] text-[#8B949E] mt-0.5">Supports TXT, CSV, Excel records</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Execute Processor Button */}
+                      <button
+                        onClick={runTool}
+                        className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white py-2.5 rounded-[8px] font-light text-[12.5px] transition-colors shadow-sm w-full flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <Play className="w-4 h-4" />
+                        Execute Phone E.164 Formatter Engine
+                      </button>
+
+                      {/* Status Cards & Reports */}
+                      {phoneReport && (
+                        <div className="space-y-4 pt-3 border-t border-[#21262D]">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h4 className="text-[13px] text-[#E6EDF3] font-light flex items-center gap-2">
+                              <Check className="w-4 h-4 text-[#22C55E]" />
+                              Formatter Report &amp; E.164 Analysis
+                            </h4>
+                            
+                            {/* Export Action Bar */}
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => exportPhoneResults('txt')}
+                                className="px-2.5 py-1 bg-[#161B22] hover:bg-[#21262D] border border-[#30363D] text-[#38BDF8] text-[11px] rounded-[6px] font-light flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                Export TXT
+                              </button>
+                              <button
+                                onClick={() => exportPhoneResults('csv')}
+                                className="px-2.5 py-1 bg-[#161B22] hover:bg-[#21262D] border border-[#30363D] text-[#22C55E] text-[11px] rounded-[6px] font-light flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                Export CSV
+                              </button>
+                              <button
+                                onClick={() => exportPhoneResults('xls')}
+                                className="px-2.5 py-1 bg-[#161B22] hover:bg-[#21262D] border border-[#30363D] text-[#F59E0B] text-[11px] rounded-[6px] font-light flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                Export Excel
+                              </button>
+                              <button
+                                onClick={copyPhoneResultsToClipboard}
+                                className="px-2.5 py-1 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-[11px] rounded-[6px] font-light flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Copy className="w-3 h-3" />
+                                Copy to Clipboard
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* 3 Status Cards */}
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div className="bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3">
+                              <div className="text-[11px] text-[#8B949E] mb-1">Total Processed</div>
+                              <div className="text-[18px] text-[#E6EDF3] font-mono">{phoneReport.total}</div>
+                              <div className="text-[10px] text-[#8B949E] mt-0.5">Input lines parsed</div>
+                            </div>
+                            <div className="bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3">
+                              <div className="text-[11px] text-[#8B949E] mb-1">Valid E.164 Phones</div>
+                              <div className="text-[18px] text-[#22C55E] font-mono">{phoneReport.valid}</div>
+                              <div className="text-[10px] text-[#22C55E] mt-0.5">Internationally formatted</div>
+                            </div>
+                            <div className="bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3">
+                              <div className="text-[11px] text-[#8B949E] mb-1">Invalid / Malformed</div>
+                              <div className="text-[18px] text-[#EF4444] font-mono">{phoneReport.invalid}</div>
+                              <div className="text-[10px] text-[#EF4444] mt-0.5">Length &amp; digit errors</div>
+                            </div>
+                          </div>
+
+                          {/* Prefix breakdown summary */}
+                          <div className="bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3 space-y-2">
+                            <h5 className="text-[11.5px] text-[#E6EDF3] font-light">International Country Prefixes Breakdown</h5>
+                            <div className="flex flex-wrap gap-2">
+                              {Object.entries(phoneReport.prefixStats).slice(0, 8).map(([pref, count]) => (
+                                <span key={pref} className="px-2 py-1 bg-[#161B22] border border-[#30363D] rounded text-[10.5px] font-mono text-[#38BDF8]">
+                                  {pref}*: <strong className="text-[#E6EDF3]">{count}</strong>
+                                </span>
+                              ))}
+                              {Object.keys(phoneReport.prefixStats).length === 0 && (
+                                <span className="text-[11px] text-[#8B949E]">No valid prefixes found yet.</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-5">
+                      {/* Side-by-side 2-column compact grid for Input TextArea & File Upload */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {/* Column 1: Input TextArea */}
+                        <div className="flex flex-col bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3.5">
+                          <label className="flex items-center justify-between text-[11.5px] font-light text-[#E6EDF3] mb-2">
+                            <span>Manual Copy / Email Text Input</span>
+                            <span className="text-[#8B949E] font-mono text-[10px]">Paste marketing copy</span>
+                          </label>
+                          <textarea
+                            value={toolInput}
+                            onChange={(e) => setToolInput(e.target.value)}
+                            placeholder="Congratulations! You won a 100% free cash bonus. Act now urgent, limited time offer!"
+                            className="w-full bg-[#161B22] border border-[#30363D] rounded-[6px] p-2.5 text-[11.5px] text-[#C9D1D9] font-mono placeholder-[#484F58] focus:outline-none focus:border-[#38BDF8] resize-none h-[140px]"
+                          />
+                        </div>
+
+                        {/* Column 2: File Upload (.txt, .csv, .docx) */}
+                        <div className="flex flex-col bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3.5">
+                          <label className="flex items-center justify-between text-[11.5px] font-light text-[#E6EDF3] mb-2">
+                            <span>File Upload (.txt, .csv, .docx)</span>
+                            <span className="text-[#8B949E] font-mono text-[10px]">Auto-append text</span>
+                          </label>
+                          <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-[#30363D] hover:border-[#38BDF8]/50 rounded-[6px] p-4 text-center bg-[#161B22] transition-colors relative cursor-pointer">
+                            <input
+                              type="file"
+                              accept=".txt,.csv,.docx,.doc,.rtf"
+                              onChange={handleToolFileUpload}
+                              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                            />
+                            <Upload className="w-5 h-5 text-[#38BDF8] mb-1.5" />
+                            <div className="text-[12px] text-[#E6EDF3] font-light">Click or drop file here</div>
+                            <div className="text-[10px] text-[#8B949E] mt-0.5">Supports TXT, CSV, document records</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Execute Processor Button */}
+                      <button
+                        onClick={runTool}
+                        className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white py-2.5 rounded-[8px] font-light text-[12.5px] transition-colors shadow-sm w-full flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <Play className="w-4 h-4" />
+                        Execute Spam Trigger Scan Engine
+                      </button>
+
+                      {/* Status Cards & Reports */}
+                      {spamReport && (
+                        <div className="space-y-4 pt-3 border-t border-[#21262D]">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h4 className="text-[13px] text-[#E6EDF3] font-light flex items-center gap-2">
+                              <Check className="w-4 h-4 text-[#22C55E]" />
+                              Spam Audit &amp; Risk Report
+                            </h4>
+                            
+                            {/* Export Action Bar */}
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => exportSpamResults('txt')}
+                                className="px-2.5 py-1 bg-[#161B22] hover:bg-[#21262D] border border-[#30363D] text-[#38BDF8] text-[11px] rounded-[6px] font-light flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                Export TXT
+                              </button>
+                              <button
+                                onClick={() => exportSpamResults('csv')}
+                                className="px-2.5 py-1 bg-[#161B22] hover:bg-[#21262D] border border-[#30363D] text-[#22C55E] text-[11px] rounded-[6px] font-light flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                Export CSV
+                              </button>
+                              <button
+                                onClick={() => exportSpamResults('xls')}
+                                className="px-2.5 py-1 bg-[#161B22] hover:bg-[#21262D] border border-[#30363D] text-[#F59E0B] text-[11px] rounded-[6px] font-light flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                Export Excel
+                              </button>
+                              <button
+                                onClick={copySpamResultsToClipboard}
+                                className="px-2.5 py-1 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-[11px] rounded-[6px] font-light flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Copy className="w-3 h-3" />
+                                Copy Report
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* 3 Status Cards */}
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div className="bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3">
+                              <div className="text-[11px] text-[#8B949E] mb-1">Spam Risk Score</div>
+                              <div className={`text-[18px] font-mono ${spamReport.riskScore > 40 ? 'text-[#EF4444]' : spamReport.riskScore > 15 ? 'text-[#F59E0B]' : 'text-[#22C55E]'}`}>
+                                {spamReport.riskScore}%
+                              </div>
+                              <div className="text-[10px] text-[#8B949E] mt-0.5">Inbox delivery risk</div>
+                            </div>
+                            <div className="bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3">
+                              <div className="text-[11px] text-[#8B949E] mb-1">Triggers Detected</div>
+                              <div className="text-[18px] text-[#F59E0B] font-mono">{spamReport.triggerCount}</div>
+                              <div className="text-[10px] text-[#F59E0B] mt-0.5">High-risk phrases</div>
+                            </div>
+                            <div className="bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3">
+                              <div className="text-[11px] text-[#8B949E] mb-1">Total Word Count</div>
+                              <div className="text-[18px] text-[#E6EDF3] font-mono">{spamReport.totalWords}</div>
+                              <div className="text-[10px] text-[#8B949E] mt-0.5">{spamReport.readabilityScore}</div>
+                            </div>
+                          </div>
+
+                          {/* Trigger phrases breakdown summary */}
+                          <div className="bg-[#0D1117] border border-[#30363D] rounded-[8px] p-3 space-y-2">
+                            <h5 className="text-[11.5px] text-[#E6EDF3] font-light">Detected Spam Triggers Breakdown</h5>
+                            <div className="flex flex-wrap gap-2">
+                              {spamReport.triggersFound.map((t) => (
+                                <span key={t.word} className={`px-2.5 py-1 rounded text-[10.5px] font-mono border ${
+                                  t.severity === 'high' ? 'bg-[#EF4444]/10 border-[#EF4444]/30 text-[#EF4444]' :
+                                  t.severity === 'medium' ? 'bg-[#F59E0B]/10 border-[#F59E0B]/30 text-[#F59E0B]' :
+                                  'bg-[#38BDF8]/10 border-[#38BDF8]/30 text-[#38BDF8]'
+                                }`}>
+                                  "{t.word}" ({t.count}x) — <span className="uppercase text-[9px]">{t.severity}</span>
+                                </span>
+                              ))}
+                              {spamReport.triggersFound.length === 0 && (
+                                <span className="text-[11px] text-[#22C55E]">🎉 Clean copy! No spam trigger keywords detected.</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

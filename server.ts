@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { initializeDatabase, memoryStore, pool } from './server/db.js';
 import { uploadAssetToR2, getAssetFromR2, testR2Connection } from './server/r2.js';
+import { apiGeneralLimiter, authLimiter, sensitiveWriteLimiter } from './server/ratelimit.js';
 import {
   User,
   AdminUser,
@@ -42,6 +43,10 @@ async function startServer() {
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     next();
   });
+
+  // Global & Auth Rate Limiters
+  app.use('/api/', apiGeneralLimiter);
+  app.use('/api/auth/', authLimiter);
 
   // Brute-force rate limiter for worker authentication
   interface LoginAttemptRecord {

@@ -9,6 +9,7 @@ import { AuthModal } from './components/AuthModal';
 import { WorkerLoginForm } from './components/WorkerLoginForm';
 import { PublicFooter } from './components/PublicFooter';
 import { User } from './types';
+import { updatePageSEO } from './utils/seo';
 
 const resolveViewFromPath = (): NavViewMode => {
   const path = window.location.pathname.replace(/\/+$/, '');
@@ -140,10 +141,32 @@ export default function App() {
   const handleNavigate = (view: 'landing' | 'services' | 'apply' | 'contact' | 'user') => {
     setCurrentView(view);
     let targetPath = '/';
-    if (view === 'services') targetPath = '/services';
-    else if (view === 'user') targetPath = '/me';
-    else if (view === 'apply') targetPath = '/apply';
-    else if (view === 'contact') targetPath = '/contact';
+    let title = 'Team Dark Devil - Enterprise Microjob & Worker Management Platform';
+    let desc = 'Microjob, email sending, and SMS sending worker team management platform with real-time operations, job orchestration, and disaster recovery.';
+
+    if (view === 'services') {
+      targetPath = '/services';
+      title = 'Services & Operations | Team Dark Devil';
+      desc = 'Explore active email sending, SMS dispatch, and microjob task queues.';
+    } else if (view === 'user') {
+      targetPath = '/me';
+      title = 'Worker Dashboard | Team Dark Devil';
+      desc = 'Manage your assigned microjobs, view earnings, and submit task proofs.';
+    } else if (view === 'apply') {
+      targetPath = '/apply';
+      title = 'Join Team / Apply | Team Dark Devil';
+      desc = 'Submit your worker application to join the Team Dark Devil network.';
+    } else if (view === 'contact') {
+      targetPath = '/contact';
+      title = 'Contact Support | Team Dark Devil';
+      desc = 'Get in touch with Team Dark Devil administrative support.';
+    }
+
+    updatePageSEO({
+      title,
+      description: desc,
+      url: window.location.origin + targetPath,
+    });
 
     if (window.location.pathname !== targetPath) {
       window.history.pushState({}, '', targetPath);
