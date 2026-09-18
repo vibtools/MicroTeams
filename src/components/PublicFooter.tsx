@@ -6,6 +6,7 @@ export interface PublicFooterProps {
   onNavigateToServices?: () => void;
   onNavigateToApply?: () => void;
   onNavigateToContact?: () => void;
+  onNavigateToSetup?: () => void;
   onOpenLogin?: () => void;
   siteSettings?: {
     siteName?: string;
@@ -19,6 +20,7 @@ export const PublicFooter: React.FC<PublicFooterProps> = ({
   onNavigateToServices,
   onNavigateToApply,
   onNavigateToContact,
+  onNavigateToSetup,
   onOpenLogin,
   siteSettings,
 }) => {
@@ -117,6 +119,14 @@ export const PublicFooter: React.FC<PublicFooterProps> = ({
                   className="hover:text-[#38BDF8] transition-colors block text-left text-[#8B949E]"
                 >
                   Leadership Contact &amp; Inquiries
+                </button>
+              )}
+              {onNavigateToSetup && (
+                <button
+                  onClick={onNavigateToSetup}
+                  className="hover:text-[#38BDF8] transition-colors block text-left text-[#8B949E]"
+                >
+                  System Setup Wizard
                 </button>
               )}
             </div>

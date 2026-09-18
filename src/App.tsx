@@ -8,9 +8,11 @@ import { UserPanel } from './components/UserPanel';
 import { AuthModal } from './components/AuthModal';
 import { WorkerLoginForm } from './components/WorkerLoginForm';
 import { PublicFooter } from './components/PublicFooter';
+import { SetupPage } from './components/SetupPage';
 import { User } from './types';
 import { updatePageSEO } from './utils/seo';
 import { ToastSystem, ToastMessage } from './components/ToastSystem';
+import { TeamsChatBox } from './components/TeamsChatBox';
 
 const resolveViewFromPath = (): NavViewMode => {
   const path = window.location.pathname.replace(/\/+$/, '');
@@ -19,6 +21,7 @@ const resolveViewFromPath = (): NavViewMode => {
   if (path === '/me') return 'user';
   if (path === '/apply' || path === '/join' || path === '/recruitment') return 'apply';
   if (path === '/contact' || path === '/contact-us') return 'contact';
+  if (path === '/setup' || path === '/install') return 'setup';
   return 'not-found';
 };
 
@@ -161,7 +164,7 @@ export default function App() {
     handleNavigate('landing');
   };
 
-  const handleNavigate = (view: 'landing' | 'services' | 'apply' | 'contact' | 'user') => {
+  const handleNavigate = (view: 'landing' | 'services' | 'apply' | 'contact' | 'user' | 'setup') => {
     setCurrentView(view);
     let targetPath = '/';
     let title = 'Team Dark Devil - Enterprise Microjob & Worker Management Platform';
@@ -183,6 +186,10 @@ export default function App() {
       targetPath = '/contact';
       title = 'Contact Support | Team Dark Devil';
       desc = 'Get in touch with Team Dark Devil administrative support.';
+    } else if (view === 'setup') {
+      targetPath = '/setup';
+      title = 'Platform Core Setup Wizard | Team Dark Devil';
+      desc = 'Initial system configuration, PostgreSQL database connection, Cloudflare R2 storage verification, and Super Administrator setup.';
     }
 
     updatePageSEO({
@@ -274,10 +281,21 @@ export default function App() {
                 onNavigateToServices={() => handleNavigate('services')}
                 onNavigateToApply={() => handleNavigate('apply')}
                 onNavigateToContact={() => handleNavigate('contact')}
+                onNavigateToSetup={() => handleNavigate('setup')}
                 siteSettings={overviewStats.siteSettings}
               />
             </div>
           ))}
+
+        {currentView === 'setup' && (
+          <SetupPage
+            onNavigateHome={() => handleNavigate('landing')}
+            onNavigateToLogin={() => {
+              window.location.href = '/leader';
+            }}
+            initialSiteSettings={overviewStats.siteSettings}
+          />
+        )}
 
         {currentView === 'not-found' && (
           <LandingPage
@@ -304,6 +322,9 @@ export default function App() {
       />
 
       <ToastSystem toasts={toasts} onDismiss={removeToast} />
+
+      {/* Floating WhatsApp-Style Teams Chat Bubble for Logged-in Worker Panel */}
+      {currentUser && <TeamsChatBox currentUser={currentUser} />}
     </div>
   );
 }

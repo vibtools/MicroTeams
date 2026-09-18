@@ -3,6 +3,7 @@ import { LeaderNavbar } from './LeaderNavbar';
 import { AdminLoginPage } from './AdminLoginPage';
 import { AdminPanel } from './AdminPanel';
 import { AdminUser, SiteSettings } from '../src/types';
+import { TeamsChatBox } from '../src/components/TeamsChatBox';
 
 export const LeaderApp: React.FC = () => {
   const [siteSettings, setSiteSettings] = useState<Partial<SiteSettings> | null>(null);
@@ -69,7 +70,16 @@ export const LeaderApp: React.FC = () => {
 
       <div className="flex-1">
         {isAuthorized ? (
-          <AdminPanel currentUser={currentUser} />
+          <>
+            <AdminPanel currentUser={currentUser} />
+            <TeamsChatBox
+              currentUser={{
+                id: currentUser.id,
+                username: currentUser.username,
+                role: currentUser.role,
+              }}
+            />
+          </>
         ) : (
           <AdminLoginPage onLoginSuccess={handleLoginSuccess} siteSettings={siteSettings || undefined} />
         )}

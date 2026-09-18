@@ -49,6 +49,7 @@ import {
   FileUp,
   Sparkles,
   ChevronRight,
+  ChevronDown,
   Layers,
   RefreshCw,
   Zap,
@@ -63,8 +64,11 @@ import {
   FolderArchive,
   ArrowDownToLine,
   ArrowUpFromLine,
+  Flame,
+  MessageSquare,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { FirebaseConfigManager } from '../src/components/FirebaseConfigManager';
 import {
   User,
   AdminUser,
@@ -88,7 +92,7 @@ interface AdminPanelProps {
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'admin-users' | 'users' | 'applications' | 'contacts' | 'data' | 'jobs' | 'submissions' | 'services' | 'tutorials' | 'tools' | 'automation' | 'settings' | 'system' | 'profile'
+    'dashboard' | 'admin-users' | 'users' | 'applications' | 'contacts' | 'data' | 'jobs' | 'submissions' | 'services' | 'tutorials' | 'tools' | 'automation' | 'settings' | 'system' | 'profile' | 'firebase-config'
   >('dashboard');
 
   // Dynamic SEO meta tag injection on tab navigation via utility script
@@ -109,6 +113,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
       'settings': { title: 'Platform Settings & Configurations | Team Dark Devil', desc: 'Configure site parameters, branding, and API credentials.' },
       'system': { title: 'System Backup & Disaster Recovery | Team Dark Devil', desc: 'Neon PostgreSQL database backups, R2 file manifests, and restore engine.' },
       'profile': { title: 'Admin Profile Management | Team Dark Devil', desc: 'Manage your administrator account settings and credentials with real-time DB sync.' },
+      'firebase-config': { title: 'Firebase Configuration | Team Dark Devil', desc: 'Control and test Google Firebase credentials for Teams Chat.' },
     };
 
     const currentMeta = tabTitles[activeTab] || {
@@ -153,6 +158,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
     logoUrl: '',
     faviconUrl: '',
   });
+
+  // Groupwise dropdown sidebar open/collapse state
+  const [openNavGroups, setOpenNavGroups] = useState<Record<string, boolean>>({
+    overview: true,
+    team: true,
+    operations: true,
+    teams_chat: true,
+    resources: false,
+    system: false,
+  });
+
+  const toggleNavGroup = (groupId: string) => {
+    setOpenNavGroups((prev) => ({
+      ...prev,
+      [groupId]: !prev[groupId],
+    }));
+  };
+
+  // Auto-expand group containing activeTab when navigated
+  useEffect(() => {
+    const groupMapping: Record<string, string> = {
+      'dashboard': 'overview',
+      'admin-users': 'team',
+      'users': 'team',
+      'applications': 'team',
+      'contacts': 'team',
+      'data': 'operations',
+      'jobs': 'operations',
+      'submissions': 'operations',
+      'services': 'operations',
+      'firebase-config': 'teams_chat',
+      'tutorials': 'resources',
+      'tools': 'resources',
+      'automation': 'resources',
+      'profile': 'system',
+      'settings': 'system',
+      'system': 'system',
+    };
+    const targetGroup = groupMapping[activeTab];
+    if (targetGroup) {
+      setOpenNavGroups((prev) => (prev[targetGroup] ? prev : { ...prev, [targetGroup]: true }));
+    }
+  }, [activeTab]);
 
   // Admin Profile state & Realtime DB Sync Handler
   const [profileUsername, setProfileUsername] = useState(currentUser.username || '');
@@ -1678,249 +1726,198 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
 
   return (
     <div className="max-w-[1280px] mx-auto px-2 sm:px-4 py-3 sm:py-5 flex flex-col md:flex-row gap-3">
-      {/* Groupwise Compact Sidebar (Width: 196px) */}
-      <aside className="w-full md:w-[196px] shrink-0 bg-[#0B0F17] border border-[#30363D] rounded-[8px] p-2 flex flex-col gap-3">
-        {/* Admin Tag */}
+      {/* Groupwise Compact Dropdown Sidebar (Width: 204px) */}
+      <aside className="w-full md:w-[204px] shrink-0 bg-[#0B0F17] border border-[#30363D] rounded-[8px] p-2 flex flex-col gap-2">
+        {/* Admin Identity Tag */}
         <div className="p-2 rounded-[6px] bg-[#12171F] border border-[#21262D]">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-[#EF4444]/20 border border-[#EF4444] flex items-center justify-center text-[10px] text-[#F87171] font-light">
+            <div className="w-6 h-6 rounded-full bg-[#EF4444]/20 border border-[#EF4444] flex items-center justify-center text-[10px] text-[#F87171] font-normal">
               AD
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-[12px] text-[#E6EDF3] font-light truncate">{currentUser.username}</div>
-              <div className="text-[10px] text-[#EF4444] font-light">Leader Root Control</div>
+              <div className="text-[11.5px] text-[#E6EDF3] font-normal truncate">{currentUser.username}</div>
+              <div className="text-[9.5px] text-[#EF4444] font-light">Leader Root Control</div>
             </div>
           </div>
         </div>
 
-        {/* Dashboard button */}
-        <div className="space-y-1">
+        {/* Group Controls Bar */}
+        <div className="flex items-center justify-between px-1 text-[9.5px] text-[#6E7681]">
+          <span className="uppercase tracking-wider font-light">NAV GROUPS</span>
           <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`w-full min-h-[28px] px-2 py-1 rounded-[6px] text-left text-[12px] flex items-center gap-2 border-l-2 transition-colors ${
-              activeTab === 'dashboard'
-                ? 'bg-[#12171F] text-[#E6EDF3] border-[#30363D] border-l-[#38BDF8] font-light'
-                : 'text-[#8B949E] hover:text-[#E6EDF3] border-l-transparent hover:bg-[#181F2B]'
-            }`}
+            type="button"
+            onClick={() => {
+              const allOpen = Object.values(openNavGroups).every(Boolean);
+              setOpenNavGroups({
+                overview: !allOpen,
+                team: !allOpen,
+                operations: !allOpen,
+                resources: !allOpen,
+                system: !allOpen,
+              });
+            }}
+            className="text-[#8B949E] hover:text-[#38BDF8] transition-colors cursor-pointer"
           >
-            <LayoutDashboard className="w-3.5 h-3.5 text-[#38BDF8]" />
-            <span>Dashboard</span>
+            {Object.values(openNavGroups).every(Boolean) ? 'Collapse All' : 'Expand All'}
           </button>
         </div>
 
-        {/* Group 1: Team & Personnel */}
-        <div className="space-y-1">
-          <div className="px-2 text-[9.5px] uppercase tracking-wider text-[#6E7681] font-light">
-            TEAM &amp; PERSONNEL
-          </div>
+        {/* Groupwise Dropdown Navigation Menus */}
+        <div className="space-y-1.5">
+          {[
+            {
+              id: 'overview',
+              label: 'Overview',
+              icon: LayoutDashboard,
+              items: [
+                { id: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
+              ],
+            },
+            {
+              id: 'team',
+              label: 'Team & Personnel',
+              icon: Users,
+              badge: applications.filter((a) => a.status === 'pending').length > 0
+                ? `${applications.filter((a) => a.status === 'pending').length} new`
+                : undefined,
+              badgeBg: 'bg-[#22C55E]/15 text-[#22C55E]',
+              items: [
+                { id: 'admin-users' as const, label: 'Admin Team', icon: ShieldAlert, badge: adminUsers.length, badgeColor: 'text-[#EF4444]' },
+                { id: 'users' as const, label: 'Workers', icon: Users, badge: users.length, badgeColor: 'text-[#8B949E]' },
+                { id: 'applications' as const, label: 'Applications', icon: ShieldCheck, badge: applications.filter((a) => a.status === 'pending').length, badgeColor: 'text-[#22C55E]' },
+                { id: 'contacts' as const, label: 'Contacts', icon: Mail, badge: contacts.length, badgeColor: 'text-[#38BDF8]' },
+              ],
+            },
+            {
+              id: 'operations',
+              label: 'Operations & Tasks',
+              icon: Briefcase,
+              badge: submissions.filter((s) => s.status === 'pending').length > 0
+                ? `${submissions.filter((s) => s.status === 'pending').length} new`
+                : undefined,
+              badgeBg: 'bg-[#F59E0B]/15 text-[#F59E0B]',
+              items: [
+                { id: 'data' as const, label: 'Data Upload', icon: Database, badge: dataFiles.length, badgeColor: 'text-[#8B949E]' },
+                { id: 'jobs' as const, label: 'Jobs Manager', icon: Briefcase, badge: jobs.length, badgeColor: 'text-[#8B949E]' },
+                { id: 'submissions' as const, label: 'Job Submits', icon: FileCheck, badge: submissions.filter((s) => s.status === 'pending').length, badgeColor: 'text-[#F59E0B]' },
+                { id: 'services' as const, label: 'Services', icon: Layers, badge: services.length, badgeColor: 'text-[#38BDF8]' },
+              ],
+            },
+            {
+              id: 'teams_chat',
+              label: 'Teams Chat',
+              icon: MessageSquare,
+              badge: 'Firebase',
+              badgeBg: 'bg-[#F59E0B]/15 text-[#F59E0B]',
+              items: [
+                { id: 'firebase-config' as const, label: 'Firebase', icon: Flame, badge: 'Config', badgeColor: 'text-[#F59E0B]' },
+              ],
+            },
+            {
+              id: 'resources',
+              label: 'Resources & Tools',
+              icon: Wrench,
+              items: [
+                { id: 'tutorials' as const, label: 'Tutorials', icon: Video },
+                { id: 'tools' as const, label: 'Tools', icon: Wrench },
+                { id: 'automation' as const, label: 'Automation', icon: Bot },
+              ],
+            },
+            {
+              id: 'system',
+              label: 'System & Config',
+              icon: Settings,
+              items: [
+                { id: 'profile' as const, label: 'Admin Profile', icon: UserCheck },
+                { id: 'settings' as const, label: 'Site Settings', icon: Settings },
+                { id: 'system' as const, label: 'R2 / Database', icon: Cloud },
+              ],
+            },
+          ].map((group) => {
+            const isOpen = !!openNavGroups[group.id];
+            const hasActiveChild = group.items.some((item) => item.id === activeTab);
 
-          <button
-            onClick={() => setActiveTab('admin-users')}
-            className={`w-full min-h-[28px] px-2 py-1 rounded-[6px] text-left text-[12px] flex items-center gap-2 border-l-2 transition-colors ${
-              activeTab === 'admin-users'
-                ? 'bg-[#12171F] text-[#E6EDF3] border-[#30363D] border-l-[#EF4444] font-light'
-                : 'text-[#8B949E] hover:text-[#E6EDF3] border-l-transparent hover:bg-[#181F2B]'
-            }`}
-          >
-            <ShieldAlert className="w-3.5 h-3.5 text-[#EF4444]" />
-            <span>Admin Team</span>
-            <span className="ml-auto text-[10px] font-mono text-[#EF4444]">{adminUsers.length}</span>
-          </button>
+            return (
+              <div key={group.id} className="rounded-[6px] bg-[#0E131F]/60 border border-[#21262D]/60 overflow-hidden">
+                {/* Group Dropdown Header Button */}
+                <button
+                  type="button"
+                  onClick={() => toggleNavGroup(group.id)}
+                  className={`w-full min-h-[29px] px-2 py-1 flex items-center justify-between text-left transition-colors select-none ${
+                    hasActiveChild
+                      ? 'bg-[#12171F] text-[#E6EDF3] border-l-2 border-l-[#38BDF8]'
+                      : 'text-[#C9D1D9] hover:bg-[#161B22] hover:text-[#E6EDF3] border-l-2 border-l-transparent'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <group.icon className={`w-3.5 h-3.5 shrink-0 ${hasActiveChild ? 'text-[#38BDF8]' : 'text-[#8B949E]'}`} />
+                    <span className="text-[11px] font-normal truncate tracking-tight">{group.label}</span>
+                  </div>
 
-          <button
-            onClick={() => setActiveTab('users')}
-            className={`w-full min-h-[28px] px-2 py-1 rounded-[6px] text-left text-[12px] flex items-center gap-2 border-l-2 transition-colors ${
-              activeTab === 'users'
-                ? 'bg-[#12171F] text-[#E6EDF3] border-[#30363D] border-l-[#38BDF8] font-light'
-                : 'text-[#8B949E] hover:text-[#E6EDF3] border-l-transparent hover:bg-[#181F2B]'
-            }`}
-          >
-            <Users className="w-3.5 h-3.5 text-[#38BDF8]" />
-            <span>Workers</span>
-            <span className="ml-auto text-[10px] font-mono text-[#8B949E]">{users.length}</span>
-          </button>
+                  <div className="flex items-center gap-1.5 shrink-0 ml-1">
+                    {group.badge && (
+                      <span className={`text-[9px] font-mono px-1 py-0.2 rounded ${group.badgeBg}`}>
+                        {group.badge}
+                      </span>
+                    )}
+                    <ChevronDown
+                      className={`w-3 h-3 text-[#6E7681] transition-transform duration-200 ${isOpen ? 'rotate-180 text-[#38BDF8]' : ''}`}
+                    />
+                  </div>
+                </button>
 
-          <button
-            onClick={() => setActiveTab('applications')}
-            className={`w-full min-h-[28px] px-2 py-1 rounded-[6px] text-left text-[12px] flex items-center gap-2 border-l-2 transition-colors ${
-              activeTab === 'applications'
-                ? 'bg-[#12171F] text-[#E6EDF3] border-[#30363D] border-l-[#EF4444] font-light'
-                : 'text-[#8B949E] hover:text-[#E6EDF3] border-l-transparent hover:bg-[#181F2B]'
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Applications</span>
-            <span className="ml-auto text-[10px] font-mono text-[#22C55E]">
-              {applications.filter((a) => a.status === 'pending').length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('contacts')}
-            className={`w-full min-h-[28px] px-2 py-1 rounded-[6px] text-left text-[12px] flex items-center gap-2 border-l-2 transition-colors ${
-              activeTab === 'contacts'
-                ? 'bg-[#12171F] text-[#E6EDF3] border-[#30363D] border-l-[#38BDF8] font-light'
-                : 'text-[#8B949E] hover:text-[#E6EDF3] border-l-transparent hover:bg-[#181F2B]'
-            }`}
-          >
-            <Mail className="w-3.5 h-3.5 text-[#38BDF8]" />
-            <span>Contacts</span>
-            <span className="ml-auto text-[10px] font-mono text-[#38BDF8]">
-              {contacts.length}
-            </span>
-          </button>
-        </div>
-
-        {/* Group 2: Operations */}
-        <div className="space-y-1">
-          <div className="px-2 text-[9.5px] uppercase tracking-wider text-[#6E7681] font-light">
-            OPERATIONS
-          </div>
-
-          <button
-            onClick={() => setActiveTab('data')}
-            className={`w-full min-h-[28px] px-2 py-1 rounded-[6px] text-left text-[12px] flex items-center gap-2 border-l-2 transition-colors ${
-              activeTab === 'data'
-                ? 'bg-[#12171F] text-[#E6EDF3] border-[#30363D] border-l-[#EF4444] font-light'
-                : 'text-[#8B949E] hover:text-[#E6EDF3] border-l-transparent hover:bg-[#181F2B]'
-            }`}
-          >
-            <Database className="w-3.5 h-3.5" />
-            <span>Data Upload</span>
-            <span className="ml-auto text-[10px] font-mono text-[#8B949E]">{dataFiles.length}</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('jobs')}
-            className={`w-full min-h-[28px] px-2 py-1 rounded-[6px] text-left text-[12px] flex items-center gap-2 border-l-2 transition-colors ${
-              activeTab === 'jobs'
-                ? 'bg-[#12171F] text-[#E6EDF3] border-[#30363D] border-l-[#EF4444] font-light'
-                : 'text-[#8B949E] hover:text-[#E6EDF3] border-l-transparent hover:bg-[#181F2B]'
-            }`}
-          >
-            <Briefcase className="w-3.5 h-3.5" />
-            <span>Jobs Manager</span>
-            <span className="ml-auto text-[10px] font-mono text-[#8B949E]">{jobs.length}</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('submissions')}
-            className={`w-full min-h-[28px] px-2 py-1 rounded-[6px] text-left text-[12px] flex items-center gap-2 border-l-2 transition-colors ${
-              activeTab === 'submissions'
-                ? 'bg-[#12171F] text-[#E6EDF3] border-[#30363D] border-l-[#EF4444] font-light'
-                : 'text-[#8B949E] hover:text-[#E6EDF3] border-l-transparent hover:bg-[#181F2B]'
-            }`}
-          >
-            <FileCheck className="w-3.5 h-3.5" />
-            <span>Job Submits</span>
-            <span className="ml-auto text-[10px] font-mono text-[#F59E0B]">
-              {submissions.filter((s) => s.status === 'pending').length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('services')}
-            className={`w-full min-h-[28px] px-2 py-1 rounded-[6px] text-left text-[12px] flex items-center gap-2 border-l-2 transition-colors ${
-              activeTab === 'services'
-                ? 'bg-[#12171F] text-[#E6EDF3] border-[#30363D] border-l-[#EF4444] font-light'
-                : 'text-[#8B949E] hover:text-[#E6EDF3] border-l-transparent hover:bg-[#181F2B]'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5 text-[#38BDF8]" />
-            <span>Services</span>
-            <span className="ml-auto text-[10px] font-mono text-[#38BDF8]">{services.length}</span>
-          </button>
-        </div>
-
-        {/* Group 3: Resources */}
-        <div className="space-y-1">
-          <div className="px-2 text-[9.5px] uppercase tracking-wider text-[#6E7681] font-light">
-            RESOURCES
-          </div>
-
-          <button
-            onClick={() => setActiveTab('tutorials')}
-            className={`w-full min-h-[28px] px-2 py-1 rounded-[6px] text-left text-[12px] flex items-center gap-2 border-l-2 transition-colors ${
-              activeTab === 'tutorials'
-                ? 'bg-[#12171F] text-[#E6EDF3] border-[#30363D] border-l-[#EF4444] font-light'
-                : 'text-[#8B949E] hover:text-[#E6EDF3] border-l-transparent hover:bg-[#181F2B]'
-            }`}
-          >
-            <Video className="w-3.5 h-3.5" />
-            <span>Tutorials</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('tools')}
-            className={`w-full min-h-[28px] px-2 py-1 rounded-[6px] text-left text-[12px] flex items-center gap-2 border-l-2 transition-colors ${
-              activeTab === 'tools'
-                ? 'bg-[#12171F] text-[#E6EDF3] border-[#30363D] border-l-[#EF4444] font-light'
-                : 'text-[#8B949E] hover:text-[#E6EDF3] border-l-transparent hover:bg-[#181F2B]'
-            }`}
-          >
-            <Wrench className="w-3.5 h-3.5" />
-            <span>Tools</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('automation')}
-            className={`w-full min-h-[28px] px-2 py-1 rounded-[6px] text-left text-[12px] flex items-center gap-2 border-l-2 transition-colors ${
-              activeTab === 'automation'
-                ? 'bg-[#12171F] text-[#E6EDF3] border-[#30363D] border-l-[#EF4444] font-light'
-                : 'text-[#8B949E] hover:text-[#E6EDF3] border-l-transparent hover:bg-[#181F2B]'
-            }`}
-          >
-            <Bot className="w-3.5 h-3.5" />
-            <span>Automation</span>
-          </button>
-        </div>
-
-        {/* Group 4: System */}
-        <div className="space-y-1">
-          <div className="px-2 text-[9.5px] uppercase tracking-wider text-[#6E7681] font-light">
-            SYSTEM
-          </div>
-
-          <button
-            onClick={() => setActiveTab('profile')}
-            className={`w-full min-h-[28px] px-2 py-1 rounded-[6px] text-left text-[12px] flex items-center gap-2 border-l-2 transition-colors ${
-              activeTab === 'profile'
-                ? 'bg-[#12171F] text-[#E6EDF3] border-[#30363D] border-l-[#EF4444] font-light'
-                : 'text-[#8B949E] hover:text-[#E6EDF3] border-l-transparent hover:bg-[#181F2B]'
-            }`}
-          >
-            <UserCheck className="w-3.5 h-3.5 text-[#22C55E]" />
-            <span>Admin Profile</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={`w-full min-h-[28px] px-2 py-1 rounded-[6px] text-left text-[12px] flex items-center gap-2 border-l-2 transition-colors ${
-              activeTab === 'settings'
-                ? 'bg-[#12171F] text-[#E6EDF3] border-[#30363D] border-l-[#EF4444] font-light'
-                : 'text-[#8B949E] hover:text-[#E6EDF3] border-l-transparent hover:bg-[#181F2B]'
-            }`}
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span>Site Settings</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('system')}
-            className={`w-full min-h-[28px] px-2 py-1 rounded-[6px] text-left text-[12px] flex items-center gap-2 border-l-2 transition-colors ${
-              activeTab === 'system'
-                ? 'bg-[#12171F] text-[#E6EDF3] border-[#30363D] border-l-[#EF4444] font-light'
-                : 'text-[#8B949E] hover:text-[#E6EDF3] border-l-transparent hover:bg-[#181F2B]'
-            }`}
-          >
-            <Cloud className="w-3.5 h-3.5 text-[#38BDF8]" />
-            <span>R2 / Database</span>
-          </button>
+                {/* Sub Menu Items (Dropdown accordion body) */}
+                {isOpen && (
+                  <div className="pl-2 pr-1.5 py-1 space-y-0.5 border-t border-[#21262D]/50 bg-[#0B0F17]/70">
+                    <div className="ml-1.5 pl-2 border-l border-[#21262D] space-y-0.5">
+                      {group.items.map((rawItem) => {
+                        const item = rawItem as {
+                          id: typeof activeTab;
+                          label: string;
+                          icon: React.ComponentType<{ className?: string }>;
+                          badge?: number | string;
+                          badgeColor?: string;
+                        };
+                        const isActive = activeTab === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setActiveTab(item.id)}
+                            className={`w-full min-h-[25px] px-2 py-0.5 rounded-[4px] text-left text-[11px] flex items-center gap-1.5 transition-colors ${
+                              isActive
+                                ? 'bg-[#161B22] text-[#38BDF8] font-normal border border-[#30363D]'
+                                : 'text-[#8B949E] hover:text-[#E6EDF3] hover:bg-[#12171F] font-normal border border-transparent'
+                            }`}
+                          >
+                            <item.icon className={`w-3 h-3 shrink-0 ${isActive ? 'text-[#38BDF8]' : 'text-[#6E7681]'}`} />
+                            <span className="truncate">{item.label}</span>
+                            {item.badge !== undefined && (
+                              <span className={`ml-auto text-[9.5px] font-mono ${item.badgeColor || 'text-[#8B949E]'}`}>
+                                {item.badge}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </aside>
 
       {/* Main Admin Content */}
       <main className="flex-1 min-w-0 bg-[#0D1117] space-y-3">
+        {/* ========================================================
+            TAB: TEAMS CHAT - FIREBASE CONFIGURATION
+        ======================================================== */}
+        {activeTab === 'firebase-config' && (
+          <FirebaseConfigManager currentUsername={currentUser.username} />
+        )}
+
         {/* ========================================================
             TAB: ADMIN DASHBOARD
         ======================================================== */}
@@ -3847,76 +3844,71 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
         {activeTab === 'settings' && (
           <div className="space-y-3">
             {/* Cloudflare R2 Brand Identity Assets: Logo & Favicon Upload */}
-            <div className="bg-[#161B22] border border-[#30363D] rounded-[8px] p-4 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#21262D] pb-3">
-                <div>
-                  <span className="text-[13px] text-[#E6EDF3] font-light block">
-                    Website Brand Identity (Cloudflare R2 Storage)
-                      </span>
+            <div className="bg-[#161B22] border border-[#30363D] rounded-[6px] p-3 space-y-3">
+              <div className="flex items-center justify-between border-b border-[#21262D] pb-2">
+                <div className="flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4 text-[#38BDF8]" />
+                  <span className="text-[12.5px] text-[#E6EDF3] font-medium">
+                    Website Brand Identity
+                  </span>
                 </div>
-                <span className="text-[10.5px] font-mono text-[#38BDF8] px-2 py-0.5 rounded bg-[#0D2847] border border-[#164E63] shrink-0 self-start sm:self-auto">
-                  Bucket: {siteSettings.r2BucketName || 'darkdevil-assets'}
-                      </span>
+                {siteSettings.r2BucketName && (
+                  <span className="text-[10px] font-mono text-[#38BDF8] px-2 py-0.5 rounded bg-[#0B1E2E] border border-[#1E3A8A]/50">
+                    Bucket: {siteSettings.r2BucketName}
+                  </span>
+                )}
               </div>
 
               {uploadStatusMsg && (
-                <div className="p-2.5 rounded-[6px] bg-[#0C2117] border border-[#124D31] text-[11.5px] text-[#22C55E] flex items-center justify-between">
+                <div className="p-2 rounded-[4px] bg-[#0C2117] border border-[#124D31] text-[11px] text-[#22C55E] flex items-center justify-between">
                   <span>{uploadStatusMsg}</span>
                   <button
                     onClick={() => setUploadStatusMsg(null)}
-                    className="text-[#8B949E] hover:text-[#E6EDF3] text-[11px] ml-2"
+                    className="text-[#8B949E] hover:text-[#E6EDF3] text-[10px] ml-2 cursor-pointer"
                   >
                     Dismiss
                   </button>
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {/* 1. Website Logo Upload Card */}
-                <div className="p-3.5 rounded-[8px] bg-[#0D1117] border border-[#30363D] space-y-3">
+                <div className="p-2.5 rounded-[6px] bg-[#0E131F] border border-[#21262D] space-y-2">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <ImageIcon className="w-4 h-4 text-[#38BDF8]" />
-                      <span className="text-[12px] text-[#E6EDF3] font-light">Site Navbar Logo</span>
-                    </div>
+                    <span className="text-[11.5px] text-[#E6EDF3] font-medium">Navbar Logo</span>
                     {siteSettings.logoUrl ? (
-                      <span className="text-[10px] text-[#22C55E] px-1.5 py-0.5 rounded bg-[#0C2117] border border-[#124D31]">
+                      <span className="text-[9.5px] text-[#22C55E] px-1.5 py-0.2 rounded bg-[#0C2117] border border-[#124D31]">
                         R2 Active
-                                  </span>
+                      </span>
                     ) : (
-                      <span className="text-[10px] text-[#8B949E] px-1.5 py-0.5 rounded bg-[#161B22] border border-[#30363D]">
+                      <span className="text-[9.5px] text-[#8B949E] px-1.5 py-0.2 rounded bg-[#161B22] border border-[#30363D]">
                         Default Icon
-                                  </span>
+                      </span>
                     )}
                   </div>
 
                   {/* Logo Live Preview Area */}
-                  <div className="h-20 rounded-[6px] bg-[#161B22] border border-dashed border-[#30363D] flex items-center justify-center p-2 overflow-hidden">
+                  <div className="h-14 rounded-[4px] bg-[#12171F] border border-dashed border-[#30363D] flex items-center justify-center p-1.5 overflow-hidden">
                     {siteSettings.logoUrl ? (
-                      <div className="flex flex-col items-center gap-1">
-                        <img
-                          src={siteSettings.logoUrl}
-                          alt="Platform Logo"
-                          className="max-h-12 max-w-full object-contain rounded"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.display = 'none';
-                          }}
-                        />
-                        <span className="text-[9px] text-[#8B949E] truncate max-w-[200px]">
-                          Previewing from R2
-                      </span>
-                      </div>
+                      <img
+                        src={siteSettings.logoUrl}
+                        alt="Platform Logo"
+                        className="max-h-10 max-w-full object-contain rounded"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                        }}
+                      />
                     ) : (
-                      <div className="text-center text-[#8B949E]">
-                        <ImageIcon className="w-6 h-6 mx-auto mb-1 opacity-40 text-[#8B949E]" />
-                        <span className="text-[10.5px]">No custom logo uploaded yet</span>
+                      <div className="flex items-center gap-1.5 text-[#8B949E] text-[10.5px]">
+                        <ImageIcon className="w-4 h-4 opacity-50" />
+                        <span>No custom logo</span>
                       </div>
                     )}
                   </div>
 
                   {/* Action Controls */}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5">
                       <label className="flex-1">
                         <input
                           type="file"
@@ -3929,28 +3921,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                           }}
                         />
                         <span
-                          className={`vib-btn-sm w-full bg-[#161B22] hover:bg-[#1C2128] text-[#38BDF8] border border-[#30363D] flex items-center justify-center gap-1.5 cursor-pointer ${
+                          className={`min-h-[26px] px-2.5 py-1 rounded-[4px] w-full bg-[#161B22] hover:bg-[#1C2128] text-[#38BDF8] border border-[#30363D] flex items-center justify-center gap-1.5 text-[11px] cursor-pointer ${
                             isUploadingLogo ? 'opacity-50 pointer-events-none' : ''
                           }`}
                         >
                           {isUploadingLogo ? (
                             <>
                               <Loader2 className="w-3 h-3 animate-spin" />
-                              <span>Uploading to Cloudflare R2...</span>
+                              <span>Uploading...</span>
                             </>
                           ) : (
                             <>
                               <Upload className="w-3 h-3" />
-                              <span>Select &amp; Upload Logo to R2</span>
+                              <span>Upload Logo to R2</span>
                             </>
-                          )}</span>
+                          )}
+                        </span>
                       </label>
 
                       {siteSettings.logoUrl && (
                         <button
                           type="button"
                           onClick={() => setSiteSettings({ ...siteSettings, logoUrl: '' })}
-                          className="vib-btn-sm bg-[#280D12] hover:bg-[#3D141B] text-[#F87171] border border-[#5C1D24]"
+                          className="min-h-[26px] px-2 rounded-[4px] bg-[#280D12] hover:bg-[#3D141B] text-[#F87171] border border-[#5C1D24] flex items-center justify-center cursor-pointer"
                           title="Reset to default icon"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -3959,80 +3952,73 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] text-[#8B949E] mb-0.5">R2 Logo Public URL</label>
+                      <label className="block text-[9.5px] text-[#8B949E] mb-0.5">Logo URL</label>
                       <div className="flex items-center gap-1">
                         <input
                           type="text"
                           value={siteSettings.logoUrl || ''}
                           onChange={(e) => setSiteSettings({ ...siteSettings, logoUrl: e.target.value })}
                           placeholder="https://... or /api/r2/file/..."
-                          className="vib-input text-[11px] font-mono"
+                          className="w-full h-[26px] px-2 rounded-[4px] bg-[#0B0F17] border border-[#30363D] text-[#E6EDF3] text-[10.5px] font-mono focus:border-[#38BDF8] focus:outline-none"
                         />
                         {siteSettings.logoUrl && (
                           <a
                             href={siteSettings.logoUrl}
                             target="_blank"
                             rel="noreferrer"
-                            className="p-1.5 rounded-[6px] bg-[#161B22] border border-[#30363D] text-[#8B949E] hover:text-[#38BDF8]"
+                            className="p-1 rounded-[4px] bg-[#161B22] border border-[#30363D] text-[#8B949E] hover:text-[#38BDF8]"
                             title="Open in new tab"
                           >
                             <ExternalLink className="w-3 h-3" />
                           </a>
                         )}
                       </div>
-                      <span className="text-[9.5px] text-[#6E7681] mt-0.5 block">
-                        Recommended: Transparent PNG or SVG, 120-240px wide by 30-48px high.
-                      </span>
                     </div>
                   </div>
                 </div>
 
                 {/* 2. Website Favicon Upload Card */}
-                <div className="p-3.5 rounded-[8px] bg-[#0D1117] border border-[#30363D] space-y-3">
+                <div className="p-2.5 rounded-[6px] bg-[#0E131F] border border-[#21262D] space-y-2">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded-full bg-[#EF4444]/20 flex items-center justify-center text-[#EF4444]">
-                        <span className="text-[9px] font-light">★</span>
-                      </div>
-                      <span className="text-[12px] text-[#E6EDF3] font-light">Browser Tab Favicon</span>
-                    </div>
+                    <span className="text-[11.5px] text-[#E6EDF3] font-medium">Browser Favicon</span>
                     {siteSettings.faviconUrl ? (
-                      <span className="text-[10px] text-[#22C55E] px-1.5 py-0.5 rounded bg-[#0C2117] border border-[#124D31]">
+                      <span className="text-[9.5px] text-[#22C55E] px-1.5 py-0.2 rounded bg-[#0C2117] border border-[#124D31]">
                         R2 Active
-                                  </span>
+                      </span>
                     ) : (
-                      <span className="text-[10px] text-[#8B949E] px-1.5 py-0.5 rounded bg-[#161B22] border border-[#30363D]">
+                      <span className="text-[9.5px] text-[#8B949E] px-1.5 py-0.2 rounded bg-[#161B22] border border-[#30363D]">
                         Default Icon
-                                  </span>
+                      </span>
                     )}
                   </div>
 
                   {/* Favicon Live Tab Mock Preview */}
-                  <div className="h-20 rounded-[6px] bg-[#161B22] border border-dashed border-[#30363D] flex items-center justify-center p-2">
-                    <div className="w-full max-w-[240px] px-3 py-1.5 rounded-t-[6px] bg-[#0D1117] border border-[#30363D] border-b-0 flex items-center gap-2 shadow-sm">
+                  <div className="h-14 rounded-[4px] bg-[#12171F] border border-dashed border-[#30363D] flex items-center justify-center p-1.5">
+                    <div className="w-full max-w-[200px] px-2.5 py-1 rounded-[4px] bg-[#0B0F17] border border-[#30363D] flex items-center gap-1.5">
                       {siteSettings.faviconUrl ? (
                         <img
                           src={siteSettings.faviconUrl}
                           alt="Favicon"
-                          className="w-4 h-4 object-contain rounded-sm"
+                          className="w-3.5 h-3.5 object-contain rounded-xs"
                           onError={(e) => {
                             (e.target as HTMLElement).style.display = 'none';
                           }}
                         />
                       ) : (
-                        <div className="w-3.5 h-3.5 rounded bg-[#EF4444] text-[8px] text-white flex items-center justify-center font-light">
+                        <div className="w-3 h-3 rounded bg-[#EF4444] text-[7px] text-white flex items-center justify-center font-medium">
                           D
                         </div>
                       )}
-                      <span className="text-[11px] text-[#E6EDF3] truncate flex-1 font-light">
-                        {siteSettings.siteName || 'Team Dark Devil'}</span>
-                      <span className="text-[9px] text-[#8B949E]">✕</span>
+                      <span className="text-[10px] text-[#E6EDF3] truncate flex-1 font-normal">
+                        {siteSettings.siteName || 'Team Dark Devil'}
+                      </span>
+                      <span className="text-[8px] text-[#8B949E]">✕</span>
                     </div>
                   </div>
 
                   {/* Action Controls */}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5">
                       <label className="flex-1">
                         <input
                           type="file"
@@ -4045,28 +4031,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                           }}
                         />
                         <span
-                          className={`vib-btn-sm w-full bg-[#161B22] hover:bg-[#1C2128] text-[#EF4444] border border-[#30363D] flex items-center justify-center gap-1.5 cursor-pointer ${
+                          className={`min-h-[26px] px-2.5 py-1 rounded-[4px] w-full bg-[#161B22] hover:bg-[#1C2128] text-[#EF4444] border border-[#30363D] flex items-center justify-center gap-1.5 text-[11px] cursor-pointer ${
                             isUploadingFavicon ? 'opacity-50 pointer-events-none' : ''
                           }`}
                         >
                           {isUploadingFavicon ? (
                             <>
                               <Loader2 className="w-3 h-3 animate-spin" />
-                              <span>Uploading to Cloudflare R2...</span>
+                              <span>Uploading...</span>
                             </>
                           ) : (
                             <>
                               <Upload className="w-3 h-3" />
-                              <span>Select &amp; Upload Favicon to R2</span>
+                              <span>Upload Favicon to R2</span>
                             </>
-                          )}</span>
+                          )}
+                        </span>
                       </label>
 
                       {siteSettings.faviconUrl && (
                         <button
                           type="button"
                           onClick={() => setSiteSettings({ ...siteSettings, faviconUrl: '' })}
-                          className="vib-btn-sm bg-[#280D12] hover:bg-[#3D141B] text-[#F87171] border border-[#5C1D24]"
+                          className="min-h-[26px] px-2 rounded-[4px] bg-[#280D12] hover:bg-[#3D141B] text-[#F87171] border border-[#5C1D24] flex items-center justify-center cursor-pointer"
                           title="Reset to default favicon"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -4075,30 +4062,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] text-[#8B949E] mb-0.5">R2 Favicon Public URL</label>
+                      <label className="block text-[9.5px] text-[#8B949E] mb-0.5">Favicon URL</label>
                       <div className="flex items-center gap-1">
                         <input
                           type="text"
                           value={siteSettings.faviconUrl || ''}
                           onChange={(e) => setSiteSettings({ ...siteSettings, faviconUrl: e.target.value })}
                           placeholder="https://... or /api/r2/file/..."
-                          className="vib-input text-[11px] font-mono"
+                          className="w-full h-[26px] px-2 rounded-[4px] bg-[#0B0F17] border border-[#30363D] text-[#E6EDF3] text-[10.5px] font-mono focus:border-[#38BDF8] focus:outline-none"
                         />
                         {siteSettings.faviconUrl && (
                           <a
                             href={siteSettings.faviconUrl}
                             target="_blank"
                             rel="noreferrer"
-                            className="p-1.5 rounded-[6px] bg-[#161B22] border border-[#30363D] text-[#8B949E] hover:text-[#38BDF8]"
+                            className="p-1 rounded-[4px] bg-[#161B22] border border-[#30363D] text-[#8B949E] hover:text-[#38BDF8]"
                             title="Open in new tab"
                           >
                             <ExternalLink className="w-3 h-3" />
                           </a>
                         )}
                       </div>
-                      <span className="text-[9.5px] text-[#6E7681] mt-0.5 block">
-                        Recommended: Square .ico, .png, or .svg (32x32px or 64x64px).
-                      </span>
                     </div>
                   </div>
                 </div>
@@ -4293,22 +4277,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
         {/* ========================================================
             TAB 10: SYSTEM CONTROL / R2 & NEON POSTGRES DATABASE
         ======================================================== */}
+        {/* TAB 10: CLOUDFLARE R2 & DATABASE INFRASTRUCTURE */}
         {activeTab === 'system' && (
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             {/* Top Overview Banner */}
-            <div className="flex flex-wrap items-center justify-between gap-2 bg-[#161B22] border border-[#30363D] rounded-[8px] p-3">
-              <div>
-                <h3 className="text-[13px] text-[#E6EDF3] font-light flex items-center gap-2">
-                  <Cloud className="w-4 h-4 text-[#38BDF8]" />
-                  <span>Cloudflare R2 Object Storage &amp; Database Infrastructure</span>
+            <div className="flex items-center justify-between p-2.5 rounded-[6px] bg-[#0E131F] border border-[#21262D]">
+              <div className="flex items-center gap-2">
+                <Cloud className="w-4 h-4 text-[#38BDF8]" />
+                <h3 className="text-[12.5px] text-[#E6EDF3] font-medium">
+                  Cloudflare R2 Storage &amp; Database Infrastructure
                 </h3>
-                <p className="text-[11px] text-[#8B949E] mt-0.5">
-                  Configure Cloudflare R2 S3 API credentials, execute real-time permission probes, and verify PostgreSQL database connectivity.
-                </p>
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="text-[10.5px] px-2 py-0.5 rounded bg-[#0B1E2E] text-[#38BDF8] border border-[#1E3A8A]/50 flex items-center gap-1 font-mono">
+                <span className="text-[10px] px-2 py-0.5 rounded bg-[#0B1E2E] text-[#38BDF8] border border-[#1E3A8A]/50 flex items-center gap-1 font-mono">
                   <Server className="w-3 h-3" />
                   <span>Dual Storage Active</span>
                 </span>
@@ -4316,37 +4298,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
             </div>
 
             {/* Cloudflare R2 Storage Infrastructure Card */}
-            <div className="bg-[#161B22] border border-[#30363D] rounded-[8px] p-4 space-y-4">
+            <div className="bg-[#161B22] border border-[#30363D] rounded-[6px] p-3 space-y-3">
               <div className="flex items-center justify-between pb-2 border-b border-[#21262D]">
                 <div className="flex items-center gap-2">
                   <Cloud className="w-4 h-4 text-[#F59E0B]" />
-                  <span className="text-[13px] text-[#E6EDF3] font-light">
-                    Cloudflare R2 Storage Credentials (A to Z Configuration)
+                  <span className="text-[12.5px] text-[#E6EDF3] font-medium">
+                    Cloudflare R2 Storage Credentials
                   </span>
-                  <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-[#1C1F26] text-[#8B949E] border border-[#30363D]">
-                    S3 API Compatible
+                  <span className="text-[9.5px] font-mono px-1.5 py-0.2 rounded bg-[#1C1F26] text-[#8B949E] border border-[#30363D]">
+                    S3 API
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {siteSettings.r2BucketName && (
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#12171F] text-[#38BDF8] border border-[#21262D]">
-                      Bucket: {siteSettings.r2BucketName}
-                    </span>
-                  )}
-                </div>
+                {siteSettings.r2BucketName && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#12171F] text-[#38BDF8] border border-[#21262D]">
+                    Bucket: {siteSettings.r2BucketName}
+                  </span>
+                )}
               </div>
 
               {/* R2 Credentials Form Grid */}
-              <div className="space-y-3">
+              <div className="space-y-2.5 text-[11px]">
                 {/* Row 1: Account ID & Storage Region */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
                   <div className="md:col-span-2">
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-[11px] text-[#8B949E] flex items-center gap-1">
-                        <span>Cloudflare Account ID</span>
-                        <span className="text-[10px] text-[#6E7681]">(32-char hex string)</span>
-                      </label>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <label className="text-[10px] text-[#8B949E]">Cloudflare Account ID</label>
                       {siteSettings.r2AccountId && !siteSettings.r2Endpoint && (
                         <button
                           type="button"
@@ -4359,7 +4336,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                               });
                             }
                           }}
-                          className="text-[10px] text-[#38BDF8] hover:underline"
+                          className="text-[9.5px] text-[#38BDF8] hover:underline cursor-pointer"
                         >
                           Auto-fill S3 Endpoint
                         </button>
@@ -4373,7 +4350,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                         setSiteSettings((prev) => ({
                           ...prev,
                           r2AccountId: accId,
-                          // If endpoint is currently empty or was standard, auto update
                           r2Endpoint:
                             !prev.r2Endpoint || prev.r2Endpoint.includes('.r2.cloudflarestorage.com')
                               ? accId.trim()
@@ -4383,20 +4359,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                         }));
                       }}
                       placeholder="e.g. 2b3f14a87e59c03b8214d023f2b23a91"
-                      className="vib-input font-mono"
+                      className="w-full h-[26px] px-2 rounded-[4px] bg-[#0B0F17] border border-[#30363D] text-[#E6EDF3] text-[10.5px] font-mono focus:border-[#38BDF8] focus:outline-none"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[11px] text-[#8B949E] mb-1">
-                      Storage Region / Hint
-                    </label>
+                    <label className="block text-[10px] text-[#8B949E] mb-0.5">Storage Region</label>
                     <select
                       value={siteSettings.r2Region || 'auto'}
                       onChange={(e) => setSiteSettings({ ...siteSettings, r2Region: e.target.value })}
-                      className="vib-input font-mono"
+                      className="w-full h-[26px] px-2 rounded-[4px] bg-[#0B0F17] border border-[#30363D] text-[#E6EDF3] text-[10.5px] font-mono focus:border-[#38BDF8] focus:outline-none"
                     >
-                      <option value="auto">auto (Global Anycast - Recommended)</option>
+                      <option value="auto">auto (Global Anycast)</option>
                       <option value="wnam">wnam (Western North America)</option>
                       <option value="enam">enam (Eastern North America)</option>
                       <option value="weur">weur (Western Europe)</option>
@@ -4407,101 +4381,86 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                 </div>
 
                 {/* Row 2: S3 API Endpoint & Bucket Name */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
-                    <label className="block text-[11px] text-[#8B949E] mb-1">
-                      R2 S3 API Endpoint URL
-                    </label>
+                    <label className="block text-[10px] text-[#8B949E] mb-0.5">R2 S3 API Endpoint URL</label>
                     <input
                       type="text"
                       value={siteSettings.r2Endpoint}
                       onChange={(e) => setSiteSettings({ ...siteSettings, r2Endpoint: e.target.value })}
                       placeholder="https://<accountid>.r2.cloudflarestorage.com"
-                      className="vib-input font-mono"
+                      className="w-full h-[26px] px-2 rounded-[4px] bg-[#0B0F17] border border-[#30363D] text-[#E6EDF3] text-[10.5px] font-mono focus:border-[#38BDF8] focus:outline-none"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[11px] text-[#8B949E] mb-1">
-                      R2 Bucket Name
-                    </label>
+                    <label className="block text-[10px] text-[#8B949E] mb-0.5">R2 Bucket Name</label>
                     <input
                       type="text"
                       value={siteSettings.r2BucketName}
                       onChange={(e) => setSiteSettings({ ...siteSettings, r2BucketName: e.target.value })}
                       placeholder="e.g. darkdevil-assets"
-                      className="vib-input font-mono"
+                      className="w-full h-[26px] px-2 rounded-[4px] bg-[#0B0F17] border border-[#30363D] text-[#E6EDF3] text-[10.5px] font-mono focus:border-[#38BDF8] focus:outline-none"
                     />
                   </div>
                 </div>
 
                 {/* Row 3: Access Key ID & Secret Access Key */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
-                    <label className="block text-[11px] text-[#8B949E] mb-1">
-                      R2 Access Key ID (S3 API Token Key)
-                    </label>
+                    <label className="block text-[10px] text-[#8B949E] mb-0.5">R2 Access Key ID</label>
                     <input
                       type="text"
                       value={siteSettings.r2AccessKeyId}
                       onChange={(e) => setSiteSettings({ ...siteSettings, r2AccessKeyId: e.target.value })}
                       placeholder="e.g. 7f9a1b2c3d4e5f6a7b8c9d0e"
-                      className="vib-input font-mono"
+                      className="w-full h-[26px] px-2 rounded-[4px] bg-[#0B0F17] border border-[#30363D] text-[#E6EDF3] text-[10.5px] font-mono focus:border-[#38BDF8] focus:outline-none"
                     />
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-[11px] text-[#8B949E]">
-                        R2 Secret Access Key (S3 API Token Secret)
-                      </label>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <label className="text-[10px] text-[#8B949E]">R2 Secret Access Key</label>
                       <button
                         type="button"
                         onClick={() => setShowR2SecretKey(!showR2SecretKey)}
-                        className="text-[10px] text-[#8B949E] hover:text-[#E6EDF3] flex items-center gap-1"
+                        className="text-[9.5px] text-[#8B949E] hover:text-[#E6EDF3] flex items-center gap-1 cursor-pointer"
                       >
                         {showR2SecretKey ? (
                           <>
-                            <EyeOff className="w-3 h-3" />
+                            <EyeOff className="w-2.5 h-2.5" />
                             <span>Hide</span>
                           </>
                         ) : (
                           <>
-                            <Eye className="w-3 h-3" />
+                            <Eye className="w-2.5 h-2.5" />
                             <span>Show</span>
                           </>
                         )}
                       </button>
                     </div>
-                    <div className="relative">
-                      <input
-                        type={showR2SecretKey ? 'text' : 'password'}
-                        value={siteSettings.r2SecretAccessKey}
-                        onChange={(e) =>
-                          setSiteSettings({ ...siteSettings, r2SecretAccessKey: e.target.value })
-                        }
-                        placeholder="••••••••••••••••••••••••••••••••"
-                        className="vib-input font-mono pr-8"
-                      />
-                    </div>
+                    <input
+                      type={showR2SecretKey ? 'text' : 'password'}
+                      value={siteSettings.r2SecretAccessKey}
+                      onChange={(e) =>
+                        setSiteSettings({ ...siteSettings, r2SecretAccessKey: e.target.value })
+                      }
+                      placeholder="••••••••••••••••••••••••••••••••"
+                      className="w-full h-[26px] px-2 rounded-[4px] bg-[#0B0F17] border border-[#30363D] text-[#E6EDF3] text-[10.5px] font-mono focus:border-[#38BDF8] focus:outline-none"
+                    />
                   </div>
                 </div>
 
                 {/* Row 4: Public Domain / Custom CDN URL */}
                 <div>
-                  <label className="block text-[11px] text-[#8B949E] mb-1">
-                    Public Domain / Custom CDN Domain (R2.dev or Custom Domain URL)
-                  </label>
+                  <label className="block text-[10px] text-[#8B949E] mb-0.5">Public CDN Domain URL</label>
                   <input
                     type="text"
                     value={siteSettings.r2PublicUrl}
                     onChange={(e) => setSiteSettings({ ...siteSettings, r2PublicUrl: e.target.value })}
                     placeholder="https://pub-xxxxxx.r2.dev or https://cdn.darkdevil.team"
-                    className="vib-input font-mono"
+                    className="w-full h-[26px] px-2 rounded-[4px] bg-[#0B0F17] border border-[#30363D] text-[#E6EDF3] text-[10.5px] font-mono focus:border-[#38BDF8] focus:outline-none"
                   />
-                  <span className="text-[10px] text-[#6E7681] mt-0.5 block">
-                    When configured, public images, icons, and worker files will be served directly from this CDN domain.
-                  </span>
                 </div>
               </div>
 
@@ -4511,44 +4470,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                   type="button"
                   disabled={isTestingR2}
                   onClick={handleTestR2Connection}
-                  className="vib-btn-sm bg-[#0284C7] hover:bg-[#0369A1] disabled:opacity-50 text-white border border-[#0284C7] flex items-center gap-1.5 shadow-sm"
+                  className="min-h-[26px] px-2.5 py-0.5 rounded-[4px] bg-[#0284C7] hover:bg-[#0369A1] disabled:opacity-50 text-white text-[10.5px] font-medium flex items-center gap-1.5 cursor-pointer"
                 >
                   {isTestingR2 ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <Loader2 className="w-3 h-3 animate-spin" />
                   ) : (
-                    <Zap className="w-3.5 h-3.5" />
+                    <Zap className="w-3 h-3" />
                   )}
-                  <span>{isTestingR2 ? 'Testing R2 Connection...' : 'Test Connection'}</span>
+                  <span>{isTestingR2 ? 'Testing R2...' : 'Test Connection'}</span>
                 </button>
 
                 <button
                   type="button"
                   disabled={isSavingR2Settings}
                   onClick={handleSaveR2Settings}
-                  className="vib-btn-sm bg-[#161B22] hover:bg-[#1C2128] text-[#E6EDF3] border border-[#30363D] flex items-center gap-1.5"
+                  className="min-h-[26px] px-2.5 py-0.5 rounded-[4px] bg-[#161B22] hover:bg-[#1C2128] text-[#E6EDF3] border border-[#30363D] text-[10.5px] flex items-center gap-1.5 cursor-pointer"
                 >
                   {isSavingR2Settings ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <Loader2 className="w-3 h-3 animate-spin" />
                   ) : (
-                    <Save className="w-3.5 h-3.5 text-[#38BDF8]" />
+                    <Save className="w-3 h-3 text-[#38BDF8]" />
                   )}
-                  <span>Save R2 Configuration</span>
+                  <span>Save Configuration</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={handleTriggerBackup}
-                  className="vib-btn-sm bg-[#12171F] hover:bg-[#181F2B] text-[#8B949E] hover:text-[#E6EDF3] border border-[#30363D] flex items-center gap-1.5 ml-auto"
+                  className="min-h-[26px] px-2.5 py-0.5 rounded-[4px] bg-[#12171F] hover:bg-[#181F2B] text-[#8B949E] hover:text-[#E6EDF3] border border-[#30363D] text-[10.5px] flex items-center gap-1.5 ml-auto cursor-pointer"
                 >
-                  <HardDrive className="w-3.5 h-3.5 text-[#F59E0B]" />
-                  <span>Execute R2 Snapshot Backup</span>
+                  <HardDrive className="w-3 h-3 text-[#F59E0B]" />
+                  <span>Execute Snapshot</span>
                 </button>
               </div>
 
               {/* Save Notification Notice */}
               {r2SaveNotice && (
                 <div
-                  className={`p-2.5 rounded-[6px] text-[11.5px] border ${
+                  className={`p-2 rounded-[4px] text-[11px] border ${
                     r2SaveNotice.startsWith('✓')
                       ? 'bg-[#0C2117] border-[#124D31] text-[#22C55E]'
                       : 'bg-[#280D12] border-[#5C1D24] text-[#EF4444]'
@@ -4560,119 +4519,92 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
 
               {/* In-Progress Testing Banner */}
               {isTestingR2 && (
-                <div className="p-3 rounded-[6px] bg-[#0F1B2B] border border-[#1E3A8A] text-[#38BDF8] space-y-2">
+                <div className="p-2 rounded-[4px] bg-[#0F1B2B] border border-[#1E3A8A] text-[#38BDF8] space-y-1">
                   <div className="flex items-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin text-[#38BDF8]" />
-                    <span className="text-[12px] font-medium">Running Cloudflare R2 Connection &amp; Permissions Probe...</span>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#38BDF8]" />
+                    <span className="text-[11.5px] font-medium">Testing Cloudflare R2 Connection...</span>
                   </div>
-                  <div className="text-[11px] font-mono text-[#93C5FD] pl-6">
+                  <div className="text-[10px] font-mono text-[#93C5FD] pl-5">
                     {r2TestProgressStage || 'Probing Cloudflare endpoints and checking S3 token authorizations...'}
                   </div>
                 </div>
               )}
 
-              {/* Test Results Card (Compact & User-Friendly) */}
+              {/* Test Results Card */}
               {r2TestResult && !isTestingR2 && (
                 <div
-                  className={`p-3.5 rounded-[8px] border space-y-3 transition-all ${
+                  className={`p-2.5 rounded-[6px] border space-y-2 transition-all ${
                     r2TestResult.success
                       ? 'bg-[#0A1F16] border-[#124D31]'
                       : 'bg-[#1F1013] border-[#5C1D24]'
                   }`}
                 >
-                  {/* Header with status & latency */}
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       {r2TestResult.success ? (
-                        <CheckCircle2 className="w-4 h-4 text-[#22C55E]" />
+                        <CheckCircle2 className="w-3.5 h-3.5 text-[#22C55E]" />
                       ) : (
-                        <AlertTriangle className="w-4 h-4 text-[#EF4444]" />
+                        <AlertTriangle className="w-3.5 h-3.5 text-[#EF4444]" />
                       )}
                       <span
-                        className={`text-[12.5px] font-medium ${
+                        className={`text-[11.5px] font-medium ${
                           r2TestResult.success ? 'text-[#22C55E]' : 'text-[#EF4444]'
                         }`}
                       >
-                        {r2TestResult.success
-                          ? 'Cloudflare R2 Connection Verified & Fully Operational'
-                          : 'Cloudflare R2 Connection Failed'}
+                        {r2TestResult.success ? 'R2 Verified' : 'R2 Connection Failed'}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       {r2TestResult.latencyMs !== undefined && (
-                        <span className="text-[10.5px] font-mono px-2 py-0.5 rounded bg-[#12171F] text-[#38BDF8] border border-[#21262D]">
-                          Latency: {r2TestResult.latencyMs}ms
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[#12171F] text-[#38BDF8] border border-[#21262D]">
+                          {r2TestResult.latencyMs}ms
                         </span>
                       )}
                       {r2TestResult.bucket && (
-                        <span className="text-[10.5px] font-mono px-2 py-0.5 rounded bg-[#12171F] text-[#8B949E] border border-[#21262D]">
-                          Bucket: {r2TestResult.bucket}
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[#12171F] text-[#8B949E] border border-[#21262D]">
+                          {r2TestResult.bucket}
                         </span>
                       )}
                     </div>
                   </div>
 
-                  {/* Summary Message */}
-                  <div className="text-[11.5px] text-[#C9D1D9] leading-relaxed">
+                  <div className="text-[11px] text-[#C9D1D9]">
                     {r2TestResult.message}
                   </div>
 
-                  {/* Step-by-Step Diagnostic Checklist */}
                   {r2TestResult.steps && r2TestResult.steps.length > 0 && (
-                    <div className="space-y-1.5 pt-1">
-                      <div className="text-[10.5px] uppercase tracking-wider text-[#8B949E] font-medium">
-                        Diagnostic Verification Steps:
-                      </div>
-                      <div className="space-y-1">
-                        {r2TestResult.steps.map((step, sIdx) => (
-                          <div
-                            key={sIdx}
-                            className="flex items-start gap-2 text-[11px] p-1.5 rounded bg-[#12171F]/80 border border-[#21262D]"
-                          >
-                            {step.status === 'passed' ? (
-                              <Check className="w-3.5 h-3.5 text-[#22C55E] shrink-0 mt-0.5" />
-                            ) : (
-                              <X className="w-3.5 h-3.5 text-[#EF4444] shrink-0 mt-0.5" />
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <span
-                                className={`font-medium ${
-                                  step.status === 'passed' ? 'text-[#E6EDF3]' : 'text-[#EF4444]'
-                                }`}
-                              >
-                                {step.name}:
-                              </span>{' '}
-                              <span className="text-[#8B949E] font-mono text-[10.5px]">
-                                {step.detail || (step.status === 'passed' ? 'OK' : 'Failed')}
-                              </span>
-                            </div>
+                    <div className="space-y-1 pt-1">
+                      {r2TestResult.steps.map((step, sIdx) => (
+                        <div
+                          key={sIdx}
+                          className="flex items-start gap-1.5 text-[10.5px] p-1 rounded bg-[#12171F]/80 border border-[#21262D]"
+                        >
+                          {step.status === 'passed' ? (
+                            <Check className="w-3 h-3 text-[#22C55E] shrink-0 mt-0.5" />
+                          ) : (
+                            <X className="w-3 h-3 text-[#EF4444] shrink-0 mt-0.5" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <span
+                              className={`font-medium ${
+                                step.status === 'passed' ? 'text-[#E6EDF3]' : 'text-[#EF4444]'
+                              }`}
+                            >
+                              {step.name}:
+                            </span>{' '}
+                            <span className="text-[#8B949E] font-mono">
+                              {step.detail || (step.status === 'passed' ? 'OK' : 'Failed')}
+                            </span>
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      ))}
                     </div>
                   )}
 
-                  {/* Troubleshooting Guidance on Failure */}
-                  {!r2TestResult.success && (
-                    <div className="p-2.5 rounded-[6px] bg-[#12171F] border border-[#30363D] text-[11px] text-[#8B949E] space-y-1">
-                      <div className="text-[#F87171] font-medium">সমাধানের নির্দেশিকা (Fix Instructions):</div>
-                      <ul className="list-disc list-inside space-y-0.5 text-[10.5px]">
-                        <li>
-                          <strong>Account ID / S3 Endpoint:</strong> Cloudflare ড্যাশবোর্ডে গিয়ে R2 Overview থেকে Account ID সঠিক কিনা নিশ্চিত করুন।
-                        </li>
-                        <li>
-                          <strong>S3 API Token:</strong> R2 &gt; Manage R2 API Tokens এ যান এবং <code>Object Read &amp; Write</code> পারমিশন সহ একটি নতুন Token তৈরি করে Access Key &amp; Secret Key বসান।
-                        </li>
-                        <li>
-                          <strong>Bucket Name:</strong> Bucket টি Cloudflare R2 তে বিদ্যমান আছে কিনা তা পরীক্ষা করুন।
-                        </li>
-                      </ul>
-                      {r2TestResult.errorDetails && (
-                        <div className="mt-2 text-[10px] font-mono text-[#EF4444] bg-[#181114] p-1.5 rounded border border-[#5C1D24] overflow-x-auto">
-                          Error: {r2TestResult.errorDetails}
-                        </div>
-                      )}
+                  {!r2TestResult.success && r2TestResult.errorDetails && (
+                    <div className="text-[10px] font-mono text-[#EF4444] bg-[#181114] p-1.5 rounded border border-[#5C1D24] overflow-x-auto">
+                      Error: {r2TestResult.errorDetails}
                     </div>
                   )}
                 </div>
@@ -4680,25 +4612,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
 
               {/* Backup Trigger Notice */}
               {backupMessage && (
-                <div className="p-2.5 rounded-[6px] bg-[#12171F] border border-[#21262D] text-[11.5px] text-[#38BDF8] flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#38BDF8]" />
+                <div className="p-2 rounded-[4px] bg-[#12171F] border border-[#21262D] text-[11px] text-[#38BDF8] flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[#38BDF8]" />
                   <span>{backupMessage}</span>
                 </div>
               )}
             </div>
 
             {/* Neon PostgreSQL Connection & Schema Infrastructure Card */}
-            <div className="bg-[#161B22] border border-[#30363D] rounded-[8px] p-4 space-y-3">
+            <div className="bg-[#161B22] border border-[#30363D] rounded-[6px] p-3 space-y-2.5">
               <div className="flex items-center justify-between pb-2 border-b border-[#21262D]">
                 <div className="flex items-center gap-2">
                   <Database className="w-4 h-4 text-[#22C55E]" />
-                  <span className="text-[12.5px] text-[#E6EDF3] font-light">
+                  <span className="text-[12.5px] text-[#E6EDF3] font-medium">
                     Neon PostgreSQL Database Infrastructure
                   </span>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-[10.5px] text-[#22C55E] px-2 py-0.5 rounded bg-[#0C2117] border border-[#124D31] flex items-center gap-1">
+                  <span className="text-[10px] text-[#22C55E] px-2 py-0.5 rounded bg-[#0C2117] border border-[#124D31] flex items-center gap-1 font-mono">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E] animate-pulse"></span>
                     <span>Active Connection</span>
                   </span>
@@ -4707,7 +4639,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                     type="button"
                     disabled={isTestingDb}
                     onClick={handleTestDbConnection}
-                    className="vib-btn-sm bg-[#12171F] hover:bg-[#181F2B] text-[#E6EDF3] border border-[#30363D] flex items-center gap-1 text-[11px]"
+                    className="min-h-[26px] px-2.5 py-0.5 rounded-[4px] bg-[#12171F] hover:bg-[#181F2B] text-[#E6EDF3] border border-[#30363D] flex items-center gap-1 text-[10.5px] cursor-pointer"
                   >
                     {isTestingDb ? (
                       <Loader2 className="w-3 h-3 animate-spin" />
@@ -4719,7 +4651,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                 </div>
               </div>
 
-              <div className="p-2.5 rounded-[6px] bg-[#12171F] border border-[#21262D] text-[11px] font-mono space-y-1 text-[#8B949E]">
+              <div className="p-2 rounded-[4px] bg-[#0B0F17] border border-[#21262D] text-[10.5px] font-mono space-y-0.5 text-[#8B949E]">
                 <div className="flex items-center justify-between">
                   <span>HOST: ep-dawn-firefly-b3rxe5jo-pooler.c-4.ap-southeast-1.aws.neon.tech</span>
                   <span className="text-[#38BDF8]">Port: 5432</span>
@@ -4734,7 +4666,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
               {/* DB Test Result Banner */}
               {dbTestResult && (
                 <div
-                  className={`p-2.5 rounded-[6px] border text-[11.5px] space-y-2 ${
+                  className={`p-2 rounded-[4px] border text-[11px] space-y-1.5 ${
                     dbTestResult.success
                       ? 'bg-[#0C2117] border-[#124D31] text-[#22C55E]'
                       : 'bg-[#280D12] border-[#5C1D24] text-[#EF4444]'
@@ -4743,29 +4675,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                   <div className="flex items-center justify-between font-medium">
                     <div className="flex items-center gap-1.5">
                       {dbTestResult.success ? (
-                        <CheckCircle2 className="w-4 h-4" />
+                        <CheckCircle2 className="w-3.5 h-3.5" />
                       ) : (
-                        <AlertTriangle className="w-4 h-4" />
+                        <AlertTriangle className="w-3.5 h-3.5" />
                       )}
                       <span>{dbTestResult.message}</span>
                     </div>
                     {dbTestResult.latencyMs !== undefined && (
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#12171F] text-[#38BDF8] border border-[#21262D]">
+                      <span className="text-[9.5px] font-mono px-1.5 py-0.2 rounded bg-[#12171F] text-[#38BDF8] border border-[#21262D]">
                         {dbTestResult.latencyMs}ms
                       </span>
                     )}
                   </div>
 
                   {dbTestResult.tables && dbTestResult.tables.length > 0 && (
-                    <div className="pt-1">
-                      <div className="text-[10px] text-[#8B949E] uppercase tracking-wider mb-1">
+                    <div className="pt-0.5">
+                      <div className="text-[9.5px] text-[#8B949E] uppercase tracking-wider mb-0.5">
                         Active Database Tables ({dbTestResult.tables.length}):
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {dbTestResult.tables.map((tbl, tIdx) => (
                           <span
                             key={tIdx}
-                            className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-[#12171F] text-[#8B949E] border border-[#21262D]"
+                            className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#12171F] text-[#8B949E] border border-[#21262D]"
                           >
                             {tbl}
                           </span>
@@ -4777,10 +4709,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
               )}
             </div>
 
-            {/* ========================================================
-                SYSTEM BACKUP & DISASTER RECOVERY SECTION (AT BOTTOM)
-            ======================================================== */}
-            <div className="space-y-4 pt-2">
+            {/* SYSTEM BACKUP & DISASTER RECOVERY SECTION */}
+            <div className="space-y-2.5 pt-1">
               {/* Hidden File Inputs for Restore */}
               <input
                 ref={fileBackupInputRef}
@@ -4798,118 +4728,92 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
               />
 
               {/* Main Backup & Disaster Recovery Container */}
-              <div className="bg-[#161B22] border border-[#30363D] rounded-[8px] p-4 space-y-4">
+              <div className="bg-[#161B22] border border-[#30363D] rounded-[6px] p-3 space-y-3">
                 {/* Header with Title & Badges */}
-                <div className="flex items-center justify-between pb-3 border-b border-[#21262D]">
+                <div className="flex items-center justify-between pb-2 border-b border-[#21262D]">
                   <div className="flex items-center gap-2">
                     <HardDriveDownload className="w-4 h-4 text-[#38BDF8]" />
-                    <h3 className="text-[13px] text-[#E6EDF3] font-light">
+                    <h3 className="text-[12.5px] text-[#E6EDF3] font-medium">
                       System Backup &amp; Disaster Recovery
                     </h3>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#0B1E2E] text-[#38BDF8] border border-[#1E3A8A]/50">
-                      {backups.length} Saved Snapshots
+                    <span className="text-[9.5px] font-mono px-1.5 py-0.2 rounded bg-[#0B1E2E] text-[#38BDF8] border border-[#1E3A8A]/50">
+                      {backups.length} Snapshots
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#0C2117] text-[#22C55E] border border-[#124D31] flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]"></span>
-                      <span>Dual Snapshot Engine Ready</span>
-                    </span>
-                  </div>
+                  <span className="text-[9.5px] font-mono px-2 py-0.5 rounded bg-[#0C2117] text-[#22C55E] border border-[#124D31] flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]"></span>
+                    <span>Snapshot Engine Ready</span>
+                  </span>
                 </div>
 
                 {/* Backup Creation Actions Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                   {/* Action 1: Create File Backup */}
-                  <div className="bg-[#12171F] border border-[#21262D] rounded-[6px] p-3.5 flex flex-col justify-between space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-[6px] bg-[#1C1F26] border border-[#30363D] flex items-center justify-center text-[#F59E0B]">
-                          <FolderArchive className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className="text-[12.5px] text-[#E6EDF3] font-medium">Cloudflare R2 Files Backup</div>
-                          <div className="text-[10.5px] text-[#8B949E] font-mono mt-0.5">
-                            {dataFiles.length} Data Files • {automation.length} Software Binaries • {tutorials.length} Tutorials
-                          </div>
+                  <div className="bg-[#12171F] border border-[#21262D] rounded-[6px] p-2.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-[4px] bg-[#1C1F26] border border-[#30363D] flex items-center justify-center text-[#F59E0B]">
+                        <FolderArchive className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div className="text-[11.5px] text-[#E6EDF3] font-medium">Cloudflare R2 Files Backup</div>
+                        <div className="text-[10px] text-[#8B949E] font-mono">
+                          {dataFiles.length} Data Files • {automation.length} Software • {tutorials.length} Tutorials
                         </div>
                       </div>
-
-                      <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-[#161B22] text-[#F59E0B] border border-[#21262D]">
-                        R2 Catalog
-                      </span>
                     </div>
 
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-[10.5px] text-[#8B949E]">
-                        Generates downloadable JSON storage manifest.
-                      </span>
-
-                      <button
-                        type="button"
-                        disabled={isCreatingBackup !== null}
-                        onClick={handleCreateFileBackup}
-                        className="vib-btn-sm bg-[#161B22] hover:bg-[#1E2530] text-[#F59E0B] border border-[#F59E0B]/40 hover:border-[#F59E0B] flex items-center gap-1.5 text-[11px] disabled:opacity-50"
-                      >
-                        {isCreatingBackup === 'files' ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <FileArchive className="w-3.5 h-3.5" />
-                        )}
-                        <span>{isCreatingBackup === 'files' ? 'Creating...' : 'Create File Backup'}</span>
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      disabled={isCreatingBackup !== null}
+                      onClick={handleCreateFileBackup}
+                      className="min-h-[26px] px-2.5 py-0.5 rounded-[4px] bg-[#161B22] hover:bg-[#1E2530] text-[#F59E0B] border border-[#F59E0B]/40 hover:border-[#F59E0B] flex items-center gap-1.5 text-[10.5px] disabled:opacity-50 cursor-pointer"
+                    >
+                      {isCreatingBackup === 'files' ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <FileArchive className="w-3 h-3" />
+                      )}
+                      <span>{isCreatingBackup === 'files' ? 'Creating...' : 'Create File Backup'}</span>
+                    </button>
                   </div>
 
                   {/* Action 2: Create Database Backup */}
-                  <div className="bg-[#12171F] border border-[#21262D] rounded-[6px] p-3.5 flex flex-col justify-between space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-[6px] bg-[#1C1F26] border border-[#30363D] flex items-center justify-center text-[#22C55E]">
-                          <Database className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className="text-[12.5px] text-[#E6EDF3] font-medium">Neon PostgreSQL Database Backup</div>
-                          <div className="text-[10.5px] text-[#8B949E] font-mono mt-0.5">
-                            13 PostgreSQL Tables • {users.length} Workers • {jobs.length} Jobs • {submissions.length} Submissions
-                          </div>
+                  <div className="bg-[#12171F] border border-[#21262D] rounded-[6px] p-2.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-[4px] bg-[#1C1F26] border border-[#30363D] flex items-center justify-center text-[#22C55E]">
+                        <Database className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div className="text-[11.5px] text-[#E6EDF3] font-medium">Neon PostgreSQL Database Backup</div>
+                        <div className="text-[10px] text-[#8B949E] font-mono">
+                          13 PostgreSQL Tables • {users.length} Workers • {jobs.length} Jobs
                         </div>
                       </div>
-
-                      <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-[#161B22] text-[#22C55E] border border-[#21262D]">
-                        Full SQL Dump
-                      </span>
                     </div>
 
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-[10.5px] text-[#8B949E]">
-                        Exports all tables, credentials &amp; platform settings.
-                      </span>
-
-                      <button
-                        type="button"
-                        disabled={isCreatingBackup !== null}
-                        onClick={handleCreateDatabaseBackup}
-                        className="vib-btn-sm bg-[#0C2117] hover:bg-[#123824] text-[#22C55E] border border-[#22C55E]/40 hover:border-[#22C55E] flex items-center gap-1.5 text-[11px] disabled:opacity-50"
-                      >
-                        {isCreatingBackup === 'database' ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Download className="w-3.5 h-3.5" />
-                        )}
-                        <span>{isCreatingBackup === 'database' ? 'Exporting...' : 'Create Database Backup'}</span>
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      disabled={isCreatingBackup !== null}
+                      onClick={handleCreateDatabaseBackup}
+                      className="min-h-[26px] px-2.5 py-0.5 rounded-[4px] bg-[#0C2117] hover:bg-[#123824] text-[#22C55E] border border-[#22C55E]/40 hover:border-[#22C55E] flex items-center gap-1.5 text-[10.5px] disabled:opacity-50 cursor-pointer"
+                    >
+                      {isCreatingBackup === 'database' ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Download className="w-3 h-3" />
+                      )}
+                      <span>{isCreatingBackup === 'database' ? 'Exporting...' : 'Create DB Backup'}</span>
+                    </button>
                   </div>
                 </div>
 
                 {/* Animated Backup Creation Progress Bar */}
                 {isCreatingBackup && (
-                  <div className="bg-[#12171F] border border-[#38BDF8]/40 rounded-[6px] p-3 space-y-2 animate-fadeIn">
-                    <div className="flex items-center justify-between text-[11px]">
+                  <div className="bg-[#12171F] border border-[#38BDF8]/40 rounded-[6px] p-2.5 space-y-1.5 animate-fadeIn">
+                    <div className="flex items-center justify-between text-[10.5px]">
                       <div className="flex items-center gap-2 text-[#38BDF8]">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <Loader2 className="w-3 h-3 animate-spin" />
                         <span className="font-medium">
                           {isCreatingBackup === 'database'
                             ? 'Creating Database Backup Snapshot...'
@@ -4919,14 +4823,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                       <span className="font-mono text-[#E6EDF3]">{backupProgress}%</span>
                     </div>
 
-                    <div className="w-full bg-[#1C2128] rounded-full h-1.5 overflow-hidden">
+                    <div className="w-full bg-[#1C2128] rounded-full h-1 overflow-hidden">
                       <div
-                        className="bg-[#38BDF8] h-1.5 rounded-full transition-all duration-300 ease-out"
+                        className="bg-[#38BDF8] h-1 rounded-full transition-all duration-300 ease-out"
                         style={{ width: `${backupProgress}%` }}
                       ></div>
                     </div>
 
-                    <div className="text-[10.5px] text-[#8B949E] font-mono truncate">
+                    <div className="text-[10px] text-[#8B949E] font-mono truncate">
                       Stage: {backupProgressStage}
                     </div>
                   </div>
@@ -4934,15 +4838,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
 
                 {/* Backup Creation Success Message Banner */}
                 {backupSuccessMessage && (
-                  <div className="p-2.5 rounded-[6px] bg-[#0C2117] border border-[#124D31] text-[11.5px] text-[#22C55E] flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-[#22C55E] shrink-0" />
+                  <div className="p-2 rounded-[4px] bg-[#0C2117] border border-[#124D31] text-[11px] text-[#22C55E] flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-[#22C55E] shrink-0" />
                       <span>{backupSuccessMessage}</span>
                     </div>
                     <button
                       type="button"
                       onClick={() => setBackupSuccessMessage(null)}
-                      className="text-[#8B949E] hover:text-[#E6EDF3] text-[11px]"
+                      className="text-[#8B949E] hover:text-[#E6EDF3] text-[10px]"
                     >
                       &times;
                     </button>
@@ -4950,11 +4854,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                 )}
 
                 {/* Created Backup Snapshots Table */}
-                <div className="space-y-2 pt-1">
+                <div className="space-y-1.5 pt-1">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[12px] text-[#E6EDF3] font-light">Backup History &amp; Downloads</span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[#12171F] text-[#8B949E] border border-[#21262D]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11.5px] text-[#E6EDF3] font-medium">Backup History</span>
+                      <span className="text-[9.5px] font-mono px-1.5 py-0.2 rounded bg-[#12171F] text-[#8B949E] border border-[#21262D]">
                         {backups.length} Records
                       </span>
                     </div>
@@ -4963,95 +4867,95 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                       <button
                         type="button"
                         onClick={fetchAdminData}
-                        className="text-[10.5px] text-[#38BDF8] hover:underline flex items-center gap-1"
+                        className="text-[10px] text-[#38BDF8] hover:underline flex items-center gap-1 cursor-pointer"
                       >
-                        <RefreshCw className="w-3 h-3" />
-                        <span>Refresh List</span>
+                        <RefreshCw className="w-2.5 h-2.5" />
+                        <span>Refresh</span>
                       </button>
                     )}
                   </div>
 
                   {backups.length === 0 ? (
-                    <div className="p-4 rounded-[6px] bg-[#12171F] border border-[#21262D] text-center space-y-2">
-                      <div className="text-[#8B949E] text-[11.5px]">
-                        No backup archives generated yet. Click &quot;Create Database Backup&quot; or &quot;Create File Backup&quot; above to capture a snapshot.
+                    <div className="p-3 rounded-[6px] bg-[#12171F] border border-[#21262D] text-center">
+                      <div className="text-[#8B949E] text-[11px]">
+                        No backup archives generated yet.
                       </div>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto border border-[#21262D] rounded-[6px]">
-                      <table className="w-full text-left text-[11.5px] text-[#C9D1D9]">
-                        <thead className="bg-[#12171F] text-[#8B949E] text-[10.5px] uppercase tracking-wider border-b border-[#21262D]">
+                    <div className="overflow-x-auto border border-[#21262D] rounded-[4px]">
+                      <table className="w-full text-left text-[11px] text-[#C9D1D9]">
+                        <thead className="bg-[#12171F] text-[#8B949E] text-[10px] uppercase tracking-wider border-b border-[#21262D]">
                           <tr>
-                            <th className="py-2 px-3 font-medium">Backup File</th>
-                            <th className="py-2 px-3 font-medium">Type</th>
-                            <th className="py-2 px-3 font-medium">Contents</th>
-                            <th className="py-2 px-3 font-medium">Size</th>
-                            <th className="py-2 px-3 font-medium">Created Date</th>
-                            <th className="py-2 px-3 font-medium text-right">Actions</th>
+                            <th className="py-1.5 px-2.5 font-medium">Backup File</th>
+                            <th className="py-1.5 px-2.5 font-medium">Type</th>
+                            <th className="py-1.5 px-2.5 font-medium">Contents</th>
+                            <th className="py-1.5 px-2.5 font-medium">Size</th>
+                            <th className="py-1.5 px-2.5 font-medium">Created Date</th>
+                            <th className="py-1.5 px-2.5 font-medium text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#21262D] bg-[#161B22]">
                           {backups.map((b) => (
                             <tr key={b.id} className="hover:bg-[#1C2128]/60 transition-colors">
-                              <td className="py-2.5 px-3">
-                                <div className="flex items-center gap-2">
+                              <td className="py-2 px-2.5">
+                                <div className="flex items-center gap-1.5">
                                   {b.type === 'database' ? (
-                                    <Database className="w-3.5 h-3.5 text-[#22C55E] shrink-0" />
+                                    <Database className="w-3 h-3 text-[#22C55E] shrink-0" />
                                   ) : (
-                                    <FolderArchive className="w-3.5 h-3.5 text-[#F59E0B] shrink-0" />
+                                    <FolderArchive className="w-3 h-3 text-[#F59E0B] shrink-0" />
                                   )}
                                   <div>
-                                    <div className="font-mono text-[#E6EDF3] text-[11px] leading-tight">
+                                    <div className="font-mono text-[#E6EDF3] text-[10.5px] leading-tight">
                                       {b.filename}
                                     </div>
-                                    <div className="text-[10px] text-[#8B949E]">{b.name}</div>
+                                    <div className="text-[9.5px] text-[#8B949E]">{b.name}</div>
                                   </div>
                                 </div>
                               </td>
 
-                              <td className="py-2.5 px-3">
+                              <td className="py-2 px-2.5">
                                 <span
-                                  className={`text-[9.5px] font-mono px-2 py-0.5 rounded border ${
+                                  className={`text-[9px] font-mono px-1.5 py-0.2 rounded border ${
                                     b.type === 'database'
                                       ? 'bg-[#0C2117] text-[#22C55E] border-[#124D31]'
                                       : 'bg-[#1F190B] text-[#F59E0B] border-[#4A3B18]'
                                   }`}
                                 >
-                                  {b.type === 'database' ? 'DATABASE (SQL)' : 'R2 ASSETS'}
+                                  {b.type === 'database' ? 'DATABASE' : 'R2 ASSETS'}
                                 </span>
                               </td>
 
-                              <td className="py-2.5 px-3 text-[11px] font-mono text-[#8B949E]">
+                              <td className="py-2 px-2.5 text-[10.5px] font-mono text-[#8B949E]">
                                 {b.type === 'database'
                                   ? `${b.recordCount} records • ${b.tablesCount || 13} tables`
                                   : `${b.recordCount} asset records`}
                               </td>
 
-                              <td className="py-2.5 px-3 font-mono text-[#38BDF8] text-[11px]">
+                              <td className="py-2 px-2.5 font-mono text-[#38BDF8] text-[10.5px]">
                                 {b.size}
                               </td>
 
-                              <td className="py-2.5 px-3 text-[#8B949E] font-mono text-[10.5px]">
+                              <td className="py-2 px-2.5 text-[#8B949E] font-mono text-[10px]">
                                 {b.createdAt}
                               </td>
 
-                              <td className="py-2.5 px-3 text-right">
-                                <div className="flex items-center justify-end gap-1.5">
+                              <td className="py-2 px-2.5 text-right">
+                                <div className="flex items-center justify-end gap-1">
                                   <button
                                     type="button"
                                     onClick={() => handleDownloadBackup(b)}
                                     title="Download Backup JSON"
-                                    className="p-1 rounded bg-[#12171F] hover:bg-[#1E2530] text-[#38BDF8] border border-[#21262D] hover:border-[#38BDF8]"
+                                    className="p-1 rounded bg-[#12171F] hover:bg-[#1E2530] text-[#38BDF8] border border-[#21262D] hover:border-[#38BDF8] cursor-pointer"
                                   >
-                                    <Download className="w-3.5 h-3.5" />
+                                    <Download className="w-3 h-3" />
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => handleDeleteBackup(b.id)}
                                     title="Delete Backup Record"
-                                    className="p-1 rounded bg-[#12171F] hover:bg-[#280D12] text-[#8B949E] hover:text-[#EF4444] border border-[#21262D] hover:border-[#5C1D24]"
+                                    className="p-1 rounded bg-[#12171F] hover:bg-[#280D12] text-[#8B949E] hover:text-[#EF4444] border border-[#21262D] hover:border-[#5C1D24] cursor-pointer"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <Trash2 className="w-3 h-3" />
                                   </button>
                                 </div>
                               </td>
@@ -5063,96 +4967,84 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                   )}
                 </div>
 
-                {/* ========================================================
-                    RESTORE & DISASTER RECOVERY RESTORATION ENGINE
-                ======================================================== */}
-                <div className="pt-3 border-t border-[#21262D] space-y-3">
+                {/* RESTORE & DISASTER RECOVERY RESTORATION ENGINE */}
+                <div className="pt-2.5 border-t border-[#21262D] space-y-2">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <RotateCcw className="w-4 h-4 text-[#F59E0B]" />
-                      <span className="text-[12.5px] text-[#E6EDF3] font-light">
-                        Restore Backup File &amp; Disaster Recovery
+                    <div className="flex items-center gap-1.5">
+                      <RotateCcw className="w-3.5 h-3.5 text-[#F59E0B]" />
+                      <span className="text-[12px] text-[#E6EDF3] font-medium">
+                        Restore Backup File
                       </span>
                     </div>
-                    <span className="text-[10px] text-[#8B949E] font-mono">
-                      Safe Schema Synchronization
-                    </span>
                   </div>
 
                   {/* Two Upload Triggers */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                     <button
                       type="button"
                       onClick={() => fileBackupInputRef.current?.click()}
-                      className="p-3 rounded-[6px] bg-[#12171F] hover:bg-[#181F2B] border border-[#21262D] hover:border-[#F59E0B] text-left flex items-center justify-between group transition-colors"
+                      className="p-2 rounded-[6px] bg-[#12171F] hover:bg-[#181F2B] border border-[#21262D] hover:border-[#F59E0B] text-left flex items-center justify-between group transition-colors cursor-pointer"
                     >
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded bg-[#161B22] border border-[#30363D] flex items-center justify-center text-[#F59E0B] group-hover:border-[#F59E0B]">
-                          <ArrowUpFromLine className="w-3.5 h-3.5" />
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-[4px] bg-[#161B22] border border-[#30363D] flex items-center justify-center text-[#F59E0B] group-hover:border-[#F59E0B]">
+                          <ArrowUpFromLine className="w-3 h-3" />
                         </div>
-                        <div>
-                          <div className="text-[12px] text-[#E6EDF3] font-medium">Upload R2 Backup</div>
-                          <div className="text-[10px] text-[#8B949E]">Select R2 files catalog JSON</div>
-                        </div>
+                        <span className="text-[11.5px] text-[#E6EDF3] font-medium">Upload R2 Backup (.json)</span>
                       </div>
-                      <span className="text-[10.5px] text-[#F59E0B] font-mono px-2 py-0.5 rounded bg-[#161B22] border border-[#21262D]">
-                        Browse .json
+                      <span className="text-[10px] text-[#F59E0B] font-mono px-1.5 py-0.2 rounded bg-[#161B22] border border-[#21262D]">
+                        Browse
                       </span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => dbBackupInputRef.current?.click()}
-                      className="p-3 rounded-[6px] bg-[#12171F] hover:bg-[#181F2B] border border-[#21262D] hover:border-[#22C55E] text-left flex items-center justify-between group transition-colors"
+                      className="p-2 rounded-[6px] bg-[#12171F] hover:bg-[#181F2B] border border-[#21262D] hover:border-[#22C55E] text-left flex items-center justify-between group transition-colors cursor-pointer"
                     >
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded bg-[#161B22] border border-[#30363D] flex items-center justify-center text-[#22C55E] group-hover:border-[#22C55E]">
-                          <Database className="w-3.5 h-3.5" />
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-[4px] bg-[#161B22] border border-[#30363D] flex items-center justify-center text-[#22C55E] group-hover:border-[#22C55E]">
+                          <Database className="w-3 h-3" />
                         </div>
-                        <div>
-                          <div className="text-[12px] text-[#E6EDF3] font-medium">Upload Database Backup</div>
-                          <div className="text-[10px] text-[#8B949E]">Select PostgreSQL database snapshot JSON</div>
-                        </div>
+                        <span className="text-[11.5px] text-[#E6EDF3] font-medium">Upload Database Backup (.json)</span>
                       </div>
-                      <span className="text-[10.5px] text-[#22C55E] font-mono px-2 py-0.5 rounded bg-[#161B22] border border-[#21262D]">
-                        Browse .json
+                      <span className="text-[10px] text-[#22C55E] font-mono px-1.5 py-0.2 rounded bg-[#161B22] border border-[#21262D]">
+                        Browse
                       </span>
                     </button>
                   </div>
 
                   {/* Selected Uploaded File Preview & Run Restore Action */}
                   {uploadedBackupFile && (
-                    <div className="p-3.5 rounded-[6px] bg-[#12171F] border border-[#38BDF8]/50 space-y-3 animate-fadeIn">
+                    <div className="p-2.5 rounded-[6px] bg-[#12171F] border border-[#38BDF8]/50 space-y-2 animate-fadeIn">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                          <CheckCircle className="w-4 h-4 text-[#38BDF8]" />
+                          <CheckCircle className="w-3.5 h-3.5 text-[#38BDF8]" />
                           <div>
-                            <div className="text-[12px] text-[#E6EDF3] font-medium flex items-center gap-2">
-                              <span>Selected Backup: {uploadedBackupFile.name}</span>
+                            <div className="text-[11.5px] text-[#E6EDF3] font-medium flex items-center gap-1.5">
+                              <span>Selected: {uploadedBackupFile.name}</span>
                               <span
-                                className={`text-[9.5px] font-mono px-1.5 py-0.2 rounded border ${
+                                className={`text-[9px] font-mono px-1.5 py-0.2 rounded border ${
                                   uploadedBackupFile.type === 'database'
                                     ? 'bg-[#0C2117] text-[#22C55E] border-[#124D31]'
                                     : 'bg-[#1F190B] text-[#F59E0B] border-[#4A3B18]'
                                 }`}
                               >
-                                {uploadedBackupFile.type === 'database' ? 'DATABASE SNAPSHOT' : 'R2 ASSET BACKUP'}
+                                {uploadedBackupFile.type === 'database' ? 'DATABASE' : 'R2 ASSETS'}
                               </span>
                             </div>
-                            <div className="text-[10.5px] text-[#8B949E] font-mono mt-0.5">
+                            <div className="text-[10px] text-[#8B949E] font-mono">
                               Size: {uploadedBackupFile.sizeStr}
-                              {uploadedBackupFile.recordsCount ? ` • ${uploadedBackupFile.recordsCount} records detected` : ''}
-                              {uploadedBackupFile.exportedAt ? ` • Exported: ${uploadedBackupFile.exportedAt.substring(0, 16)}` : ''}
+                              {uploadedBackupFile.recordsCount ? ` • ${uploadedBackupFile.recordsCount} records` : ''}
                             </div>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           <button
                             type="button"
                             onClick={() => setUploadedBackupFile(null)}
                             disabled={isRestoring}
-                            className="text-[11px] text-[#8B949E] hover:text-[#EF4444] px-2 py-1 rounded bg-[#161B22] border border-[#21262D]"
+                            className="text-[10.5px] text-[#8B949E] hover:text-[#EF4444] px-2 py-0.5 rounded bg-[#161B22] border border-[#21262D] cursor-pointer"
                           >
                             Cancel
                           </button>
@@ -5160,14 +5052,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                             type="button"
                             disabled={isRestoring}
                             onClick={handleRunRestore}
-                            className="vib-btn-sm bg-[#2563EB] hover:bg-[#1D4ED8] text-white border border-[#2563EB] flex items-center gap-1.5 text-[11.5px] disabled:opacity-50"
+                            className="min-h-[26px] px-2.5 py-0.5 rounded-[4px] bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-[10.5px] font-medium flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                           >
                             {isRestoring ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <Loader2 className="w-3 h-3 animate-spin" />
                             ) : (
-                              <RotateCcw className="w-3.5 h-3.5" />
+                              <RotateCcw className="w-3 h-3" />
                             )}
-                            <span>{isRestoring ? 'Restoring...' : 'Run Restore Engine'}</span>
+                            <span>{isRestoring ? 'Restoring...' : 'Run Restore'}</span>
                           </button>
                         </div>
                       </div>
@@ -5176,23 +5068,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
 
                   {/* Restore In-Progress Animated Progress Bar */}
                   {isRestoring && (
-                    <div className="bg-[#12171F] border border-[#2563EB]/50 rounded-[6px] p-3 space-y-2 animate-fadeIn">
-                      <div className="flex items-center justify-between text-[11px]">
+                    <div className="bg-[#12171F] border border-[#2563EB]/50 rounded-[6px] p-2.5 space-y-1.5 animate-fadeIn">
+                      <div className="flex items-center justify-between text-[10.5px]">
                         <div className="flex items-center gap-2 text-[#38BDF8]">
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span className="font-medium">Executing Disaster Recovery Restore...</span>
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          <span className="font-medium">Executing Restore...</span>
                         </div>
                         <span className="font-mono text-[#E6EDF3]">{restoreProgress}%</span>
                       </div>
 
-                      <div className="w-full bg-[#1C2128] rounded-full h-1.5 overflow-hidden">
+                      <div className="w-full bg-[#1C2128] rounded-full h-1 overflow-hidden">
                         <div
-                          className="bg-[#2563EB] h-1.5 rounded-full transition-all duration-300 ease-out"
+                          className="bg-[#2563EB] h-1 rounded-full transition-all duration-300 ease-out"
                           style={{ width: `${restoreProgress}%` }}
                         ></div>
                       </div>
 
-                      <div className="text-[10.5px] text-[#8B949E] font-mono truncate">
+                      <div className="text-[10px] text-[#8B949E] font-mono truncate">
                         Stage: {restoreProgressStage}
                       </div>
                     </div>
@@ -5200,15 +5092,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
 
                   {/* Restore Error Banner */}
                   {restoreError && (
-                    <div className="p-2.5 rounded-[6px] bg-[#280D12] border border-[#5C1D24] text-[11.5px] text-[#EF4444] flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4 text-[#EF4444] shrink-0" />
+                    <div className="p-2 rounded-[4px] bg-[#280D12] border border-[#5C1D24] text-[11px] text-[#EF4444] flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 text-[#EF4444] shrink-0" />
                         <span>{restoreError}</span>
                       </div>
                       <button
                         type="button"
                         onClick={() => setRestoreError(null)}
-                        className="text-[#8B949E] hover:text-[#EF4444] text-[11px]"
+                        className="text-[#8B949E] hover:text-[#EF4444] text-[10px] cursor-pointer"
                       >
                         &times;
                       </button>
@@ -5217,16 +5109,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
 
                   {/* Restore Success Statistics Card */}
                   {restoreSuccessStats && (
-                    <div className="p-3.5 rounded-[6px] bg-[#0C2117] border border-[#124D31] text-[11.5px] text-[#22C55E] space-y-2 animate-fadeIn">
+                    <div className="p-2.5 rounded-[4px] bg-[#0C2117] border border-[#124D31] text-[11px] text-[#22C55E] space-y-1.5 animate-fadeIn">
                       <div className="flex items-center justify-between font-medium">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className="w-4 h-4 text-[#22C55E]" />
+                        <div className="flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-[#22C55E]" />
                           <span>{restoreSuccessStats.message}</span>
                         </div>
                         <button
                           type="button"
                           onClick={() => setRestoreSuccessStats(null)}
-                          className="text-[#8B949E] hover:text-[#22C55E] text-[11px]"
+                          className="text-[#8B949E] hover:text-[#22C55E] text-[10px] cursor-pointer"
                         >
                           &times;
                         </button>
@@ -5234,14 +5126,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
 
                       {Object.keys(restoreSuccessStats.stats).length > 0 && (
                         <div className="pt-1 border-t border-[#124D31]/60">
-                          <div className="text-[10px] text-[#8B949E] uppercase tracking-wider mb-1">
-                            Restored Entity Breakdown:
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
+                          <div className="flex flex-wrap gap-1">
                             {Object.entries(restoreSuccessStats.stats).map(([k, v], idx) => (
                               <span
                                 key={idx}
-                                className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#12171F] text-[#E6EDF3] border border-[#21262D]"
+                                className="text-[9.5px] font-mono px-1.5 py-0.2 rounded bg-[#12171F] text-[#E6EDF3] border border-[#21262D]"
                               >
                                 {k}: <strong className="text-[#22C55E] font-medium">{v}</strong>
                               </span>

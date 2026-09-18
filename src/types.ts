@@ -208,4 +208,84 @@ export interface SiteSettings {
   r2Region?: string;
   logoUrl?: string;
   faviconUrl?: string;
+  setupCompleted?: boolean;
+  setupLocked?: boolean;
+  setupCompletedAt?: string;
 }
+
+export interface FirebaseClientConfig {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  storageBucket: string;
+  messagingSenderId: string;
+  appId: string;
+  measurementId?: string;
+}
+
+export interface FirebaseServiceAccountKey {
+  type?: string;
+  project_id?: string;
+  private_key_id?: string;
+  private_key?: string;
+  client_email?: string;
+  client_id?: string;
+  auth_uri?: string;
+  token_uri?: string;
+  auth_provider_x509_cert_url?: string;
+  client_x509_cert_url?: string;
+  universe_domain?: string;
+}
+
+export interface FirebaseSettings {
+  clientConfig: FirebaseClientConfig;
+  serviceAccount: FirebaseServiceAccountKey | null;
+  clientStatus?: 'not_configured' | 'verified' | 'failed';
+  serviceAccountStatus?: 'not_configured' | 'verified' | 'failed';
+  lastClientTestAt?: string;
+  lastClientTestMessage?: string;
+  lastServiceTestAt?: string;
+  lastServiceTestMessage?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export type ChatSenderRole = 'admin' | 'leader' | 'sub_leader' | 'worker' | 'system';
+
+export interface ChatMessage {
+  id: string;
+  channelId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: ChatSenderRole;
+  senderAvatar?: string;
+  type: 'text' | 'image' | 'file' | 'audio' | 'system';
+  text: string;
+  mediaUrl?: string;
+  mediaName?: string;
+  mediaSize?: string;
+  timestamp: string;
+  status: 'sending' | 'sent' | 'delivered' | 'read';
+  reactions?: Record<string, string[]>; // e.g. { '👍': ['user1', 'user2'] }
+  replyTo?: {
+    id: string;
+    senderName: string;
+    text: string;
+  };
+}
+
+export interface ChatChannel {
+  id: string;
+  name: string;
+  type: 'channel' | 'direct' | 'announcement';
+  description?: string;
+  avatarUrl?: string;
+  lastMessage?: string;
+  lastMessageTime?: string;
+  unreadCount: number;
+  membersCount?: number;
+  isOnline?: boolean;
+  isPinned?: boolean;
+  badge?: string;
+}
+

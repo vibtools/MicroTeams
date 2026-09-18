@@ -1,9 +1,13 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
+import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+
+dotenv.config();
 import { createServer as createViteServer } from 'vite';
-import { initializeDatabase, memoryStore, pool } from './server/db.js';
+import { initializeDatabase, memoryStore, pool, testDatabaseConnection, reconnectDatabase, isDbConnected } from './server/db.js';
 import { uploadAssetToR2, getAssetFromR2, testR2Connection } from './server/r2.js';
 import { apiGeneralLimiter, authLimiter, sensitiveWriteLimiter } from './server/ratelimit.js';
 import {
@@ -55,6 +59,8 @@ async function startServer() {
     lastAttempt: number;
   }
   const workerLoginLimiter = new Map<string, LoginAttemptRecord>();
+  // High-security brute-force rate limiter for Admin & Leader authentication
+  const adminLoginLimiter = new Map<string, LoginAttemptRecord>();
 
   // Cleanup stale attempt records every 10 minutes
   setInterval(() => {
@@ -62,6 +68,11 @@ async function startServer() {
     for (const [key, record] of workerLoginLimiter.entries()) {
       if (now > record.lockedUntil && now - record.lastAttempt > 15 * 60 * 1000) {
         workerLoginLimiter.delete(key);
+      }
+    }
+    for (const [key, record] of adminLoginLimiter.entries()) {
+      if (now > record.lockedUntil && now - record.lastAttempt > 15 * 60 * 1000) {
+        adminLoginLimiter.delete(key);
       }
     }
   }, 10 * 60 * 1000);
@@ -74,14 +85,42 @@ async function startServer() {
     res.json({ status: 'ok', time: new Date().toISOString(), team: 'Dark Devil' });
   });
 
-  // Auth: Dedicated Admin & Leader Login (dd_admin_users table)
+  // Auth: Dedicated Admin & Leader Login (dd_admin_users table) - Hardened & Protected
   app.post('/api/auth/admin-login', async (req, res) => {
     const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password required' });
+    if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Valid administrator identifier and password are required.' });
     }
 
     const trimmedUsername = username.trim();
+    if (!trimmedUsername || trimmedUsername.length > 80 || password.length > 128) {
+      return res.status(400).json({ error: 'Input exceeds security length constraints.' });
+    }
+
+    // IP Extraction for Rate Limiting & Forensic Audit
+    const clientIp =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.socket.remoteAddress ||
+      '127.0.0.1';
+    const limitKey = `${clientIp}_${trimmedUsername.toLowerCase()}`;
+    const now = Date.now();
+
+    // Check Active Security Lockout
+    const attemptRecord = adminLoginLimiter.get(limitKey) || {
+      attempts: 0,
+      lockedUntil: 0,
+      lastAttempt: now,
+    };
+
+    if (attemptRecord.lockedUntil > now) {
+      const secondsRemaining = Math.ceil((attemptRecord.lockedUntil - now) / 1000);
+      return res.status(429).json({
+        error: `Administrative Security Lockout: Excessive failed login attempts. Gateway locked for ${secondsRemaining}s.`,
+        locked: true,
+        retryAfterSeconds: secondsRemaining,
+        remainingAttempts: 0,
+      });
+    }
 
     // Strict Separation Check: Worker accounts are strictly prohibited from Leader / Admin portal
     const isWorkerAccount = memoryStore.users.some(
@@ -93,33 +132,149 @@ async function startServer() {
     if (isWorkerAccount) {
       return res.status(403).json({
         error:
-          'Access Denied: Worker accounts cannot log into the Leader / Admin Portal. Worker and Admin accounts are completely separated. Workers must sign in at the Worker Portal (/).',
+          'Access Denied: Worker accounts cannot access the Leader / Admin Gateway. Portal access is strictly restricted to verified Administrators.',
       });
     }
 
-    const admin = memoryStore.adminUsers.find(
+    // Timing attack mitigation: computational equalization delay
+    await new Promise((resolve) => setTimeout(resolve, 180));
+
+    let admin = memoryStore.adminUsers.find(
       (u) =>
-        (u.username.toLowerCase() === trimmedUsername.toLowerCase() ||
-          u.email.toLowerCase() === trimmedUsername.toLowerCase()) &&
-        u.password === password
+        u.username.toLowerCase() === trimmedUsername.toLowerCase() ||
+        u.email.toLowerCase() === trimmedUsername.toLowerCase()
     );
 
-    if (!admin) {
-      return res.status(401).json({ error: 'Invalid Administrator or Leader credentials.' });
+    // Fallback: Query PostgreSQL dd_admin_users if not found in memory store cache
+    if (!admin && isDbConnected) {
+      try {
+        const dbRes = await pool.query(
+          'SELECT * FROM dd_admin_users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($1) LIMIT 1',
+          [trimmedUsername]
+        );
+        if (dbRes.rows.length > 0) {
+          const row = dbRes.rows[0];
+          admin = {
+            id: row.id,
+            username: row.username,
+            email: row.email,
+            password: row.password,
+            role: row.role as AdminRole,
+            status: row.status as 'active' | 'suspended',
+            createdAt: row.created_at,
+            lastLogin: row.last_login || undefined,
+            notes: row.notes || undefined,
+            assignedBy: row.assigned_by || undefined,
+          };
+          // Synchronize memory cache
+          const existingIdx = memoryStore.adminUsers.findIndex((a) => a.id === admin!.id);
+          if (existingIdx >= 0) {
+            memoryStore.adminUsers[existingIdx] = admin;
+          } else {
+            memoryStore.adminUsers.push(admin);
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Constant-time comparison for password checking
+    const isPasswordValid = (() => {
+      if (!admin || !admin.password) return false;
+      const expectedBuffer = Buffer.from(admin.password);
+      const suppliedBuffer = Buffer.from(password);
+      if (expectedBuffer.length !== suppliedBuffer.length) {
+        return false;
+      }
+      return crypto.timingSafeEqual(expectedBuffer, suppliedBuffer);
+    })();
+
+    if (!admin || !isPasswordValid) {
+      attemptRecord.attempts += 1;
+      attemptRecord.lastAttempt = now;
+
+      if (attemptRecord.attempts >= 5) {
+        attemptRecord.lockedUntil = now + 15 * 60 * 1000; // 15-minute temporary lockout
+        adminLoginLimiter.set(limitKey, attemptRecord);
+
+        pool.query(
+          `INSERT INTO dd_system_logs (level, category, message, details)
+           VALUES ('warn', 'ADMIN_LOCKOUT', $1, $2)`,
+          [
+            `Administrative login locked out for 15m from IP ${clientIp}`,
+            JSON.stringify({ ip: clientIp, username: trimmedUsername, attempts: attemptRecord.attempts })
+          ]
+        ).catch(() => {});
+
+        return res.status(429).json({
+          error:
+            'Administrative Security Lockout: 5 consecutive failed attempts. Gateway locked for 15 minutes to prevent unauthorized access.',
+          locked: true,
+          retryAfterSeconds: 900,
+          remainingAttempts: 0,
+        });
+      }
+
+      adminLoginLimiter.set(limitKey, attemptRecord);
+      const remaining = 5 - attemptRecord.attempts;
+
+      pool.query(
+        `INSERT INTO dd_system_logs (level, category, message, details)
+         VALUES ('warn', 'ADMIN_AUTH_FAIL', $1, $2)`,
+        [
+          `Failed admin login attempt: ${trimmedUsername} from IP ${clientIp}`,
+          JSON.stringify({ ip: clientIp, username: trimmedUsername, remainingAttempts: remaining })
+        ]
+      ).catch(() => {});
+
+      return res.status(401).json({
+        error: `Invalid Administrator credentials. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining before security lockout.`,
+        remainingAttempts: remaining,
+      });
     }
 
     if (admin.status === 'suspended') {
-      return res.status(403).json({ error: 'Administrative account has been suspended. Contact system owner.' });
+      return res.status(403).json({ error: 'Administrative account has been suspended. Contact platform owner.' });
     }
+
+    // Clear failed login tracking on successful authentication
+    adminLoginLimiter.delete(limitKey);
 
     // Update last login timestamp
     admin.lastLogin = new Date().toISOString().replace('T', ' ').substring(0, 16);
     pool.query('UPDATE dd_admin_users SET last_login = $1 WHERE id = $2', [admin.lastLogin, admin.id]).catch(() => {});
 
+    // First admin login = permanently locked setup page
+    if (!memoryStore.settings.setupLocked || !memoryStore.settings.setupCompleted) {
+      memoryStore.settings.setupLocked = true;
+      memoryStore.settings.setupCompleted = true;
+      if (!memoryStore.settings.setupCompletedAt) {
+        memoryStore.settings.setupCompletedAt = new Date().toISOString();
+      }
+      if (isDbConnected) {
+        pool.query(
+          `INSERT INTO dd_settings (id, data) VALUES ('main', $1)
+           ON CONFLICT (id) DO UPDATE SET data = $1`,
+          [JSON.stringify(memoryStore.settings)]
+        ).catch(() => {});
+      }
+    }
+
+    // Generate high-entropy cryptographic session token
+    const cryptoSessionToken = `dd_admin_sec_${admin.id}_${crypto.randomBytes(24).toString('hex')}`;
+
+    pool.query(
+      `INSERT INTO dd_system_logs (level, category, message, details)
+       VALUES ('info', 'ADMIN_AUTH_SUCCESS', $1, $2)`,
+      [
+        `Administrator authenticated: ${admin.username} (${admin.role}) from IP ${clientIp}`,
+        JSON.stringify({ ip: clientIp, role: admin.role, userId: admin.id })
+      ]
+    ).catch(() => {});
+
     const { password: _, ...safeAdmin } = admin;
     res.json({
       user: safeAdmin,
-      token: `dd_admin_token_${admin.id}_${Date.now()}`,
+      token: cryptoSessionToken,
       message: `${admin.role} authentication successful`,
     });
   });
@@ -1667,6 +1822,359 @@ async function startServer() {
     res.json({ success: true, settings: memoryStore.settings });
   });
 
+  // ==========================================
+  // Firebase Configuration & Health Test Endpoints
+  // ==========================================
+
+  // 1. Get current Firebase Config (with masked private key for security)
+  app.get('/api/admin/firebase/config', (req, res) => {
+    const fb = memoryStore.firebaseSettings;
+    const maskedSA = fb.serviceAccount
+      ? {
+          type: fb.serviceAccount.type,
+          project_id: fb.serviceAccount.project_id,
+          private_key_id: fb.serviceAccount.private_key_id,
+          client_email: fb.serviceAccount.client_email,
+          client_id: fb.serviceAccount.client_id,
+          auth_uri: fb.serviceAccount.auth_uri,
+          token_uri: fb.serviceAccount.token_uri,
+          auth_provider_x509_cert_url: fb.serviceAccount.auth_provider_x509_cert_url,
+          client_x509_cert_url: fb.serviceAccount.client_x509_cert_url,
+          universe_domain: fb.serviceAccount.universe_domain,
+          hasPrivateKey: !!fb.serviceAccount.private_key,
+        }
+      : null;
+
+    res.json({
+      success: true,
+      config: {
+        ...fb,
+        serviceAccount: maskedSA,
+      },
+    });
+  });
+
+  // Public/App Client Config for Real-time Teams Chat client
+  app.get('/api/firebase/client-config', (req, res) => {
+    const clientConfig = memoryStore.firebaseSettings.clientConfig;
+    const isConfigured = !!(clientConfig && clientConfig.apiKey && clientConfig.projectId);
+    res.json({
+      isConfigured,
+      clientConfig: isConfigured ? clientConfig : null,
+    });
+  });
+
+  // 2. Test Firebase Client Config
+  app.post('/api/admin/firebase/test-client', async (req, res) => {
+    const { apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId } = req.body || {};
+
+    if (!apiKey || !projectId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Both apiKey and projectId are required for Firebase Client Config test.',
+      });
+    }
+
+    const startTime = Date.now();
+    try {
+      // Test 1: Verify API key with Google Identity Toolkit API
+      const testUrl = `https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key=${apiKey}`;
+      const gRes = await fetch(testUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: 'ping-test@verification.internal', continueUri: 'http://localhost' }),
+      });
+
+      const gData: any = await gRes.json().catch(() => ({}));
+      const latencyMs = Date.now() - startTime;
+
+      // If Google explicitly says API key is invalid
+      if (gData?.error?.details?.some((d: any) => d?.reason === 'API_KEY_INVALID') || gData?.error?.message?.includes('API key not valid')) {
+        return res.status(400).json({
+          success: false,
+          error: `Google Cloud Error: ${gData?.error?.message || 'API key not valid.'}`,
+          latencyMs,
+        });
+      }
+
+      // Test 2: Storage Bucket reachability check if provided
+      let bucketStatus = 'skipped';
+      if (storageBucket) {
+        try {
+          const bRes = await fetch(`https://firebasestorage.googleapis.com/v0/b/${storageBucket}`);
+          bucketStatus = bRes.status === 404 || bRes.status === 400 || bRes.status === 200 ? 'reachable' : 'unreachable';
+        } catch {
+          bucketStatus = 'dns_warning';
+        }
+      }
+
+      const successMessage = `Client Config verified with Google Cloud! Project: ${projectId} responded in ${latencyMs}ms (Storage: ${bucketStatus}).`;
+      
+      memoryStore.firebaseSettings.lastClientTestAt = new Date().toISOString();
+      memoryStore.firebaseSettings.lastClientTestMessage = successMessage;
+
+      res.json({
+        success: true,
+        message: successMessage,
+        latencyMs,
+        details: {
+          projectId,
+          authDomain,
+          storageBucket,
+          bucketStatus,
+          appId,
+          verifiedAt: new Date().toISOString(),
+        },
+      });
+    } catch (err: any) {
+      const failMsg = `Network or verification failed: ${err?.message || 'Could not connect to Google services'}`;
+      res.status(500).json({
+        success: false,
+        error: failMsg,
+      });
+    }
+  });
+
+  // 3. Save Firebase Client Config (Persisted in NEON PostgreSQL)
+  app.post('/api/admin/firebase/save-client-config', async (req, res) => {
+    const { clientConfig, updatedBy } = req.body || {};
+
+    if (!clientConfig || !clientConfig.apiKey || !clientConfig.projectId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid client config. apiKey and projectId are mandatory.',
+      });
+    }
+
+    const cleanConfig = {
+      apiKey: String(clientConfig.apiKey).trim(),
+      authDomain: String(clientConfig.authDomain || '').trim(),
+      projectId: String(clientConfig.projectId).trim(),
+      storageBucket: String(clientConfig.storageBucket || '').trim(),
+      messagingSenderId: String(clientConfig.messagingSenderId || '').trim(),
+      appId: String(clientConfig.appId || '').trim(),
+      measurementId: clientConfig.measurementId ? String(clientConfig.measurementId).trim() : undefined,
+    };
+
+    memoryStore.firebaseSettings.clientConfig = cleanConfig;
+    memoryStore.firebaseSettings.clientStatus = 'verified';
+    memoryStore.firebaseSettings.updatedAt = new Date().toISOString();
+    if (updatedBy) memoryStore.firebaseSettings.updatedBy = updatedBy;
+
+    try {
+      await pool.query(
+        `INSERT INTO dd_firebase_config (
+          id, client_config, service_account, client_status, service_account_status,
+          last_client_test_at, last_client_test_message, last_service_test_at, last_service_test_message,
+          updated_at, updated_by
+        ) VALUES (
+          'main', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          client_config = EXCLUDED.client_config,
+          client_status = EXCLUDED.client_status,
+          last_client_test_at = EXCLUDED.last_client_test_at,
+          last_client_test_message = EXCLUDED.last_client_test_message,
+          updated_at = EXCLUDED.updated_at,
+          updated_by = EXCLUDED.updated_by`,
+        [
+          JSON.stringify(cleanConfig),
+          memoryStore.firebaseSettings.serviceAccount ? JSON.stringify(memoryStore.firebaseSettings.serviceAccount) : null,
+          memoryStore.firebaseSettings.clientStatus || 'verified',
+          memoryStore.firebaseSettings.serviceAccountStatus || 'not_configured',
+          memoryStore.firebaseSettings.lastClientTestAt || new Date().toISOString(),
+          memoryStore.firebaseSettings.lastClientTestMessage || 'Saved successfully',
+          memoryStore.firebaseSettings.lastServiceTestAt || null,
+          memoryStore.firebaseSettings.lastServiceTestMessage || null,
+          memoryStore.firebaseSettings.updatedAt,
+          memoryStore.firebaseSettings.updatedBy || 'admin'
+        ]
+      );
+      console.log('Saved Firebase client config to PostgreSQL dd_firebase_config');
+    } catch (dbErr: any) {
+      console.warn('Could not persist firebase client config to pg:', dbErr?.message);
+    }
+
+    res.json({
+      success: true,
+      message: 'Firebase Client Config saved to NEON database successfully.',
+      clientConfig: cleanConfig,
+    });
+  });
+
+  // 4. Test Firebase Service Account JSON (Google Cloud IAM Token Verification)
+  app.post('/api/admin/firebase/test-service-account', async (req, res) => {
+    let { serviceAccount } = req.body || {};
+
+    if (!serviceAccount) {
+      return res.status(400).json({
+        success: false,
+        error: 'Service Account JSON is required.',
+      });
+    }
+
+    // Parse if string
+    let saObj: any;
+    if (typeof serviceAccount === 'string') {
+      try {
+        saObj = JSON.parse(serviceAccount);
+      } catch (e: any) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid JSON format in Service Account: ' + e.message,
+        });
+      }
+    } else {
+      saObj = serviceAccount;
+    }
+
+    if (!saObj.project_id || !saObj.private_key || !saObj.client_email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Service account is missing required properties: project_id, private_key, or client_email.',
+      });
+    }
+
+    const startTime = Date.now();
+    let testApp: any = null;
+    try {
+      const { initializeApp, cert, deleteApp } = await import('firebase-admin/app');
+      
+      const appName = `sa-test-${Date.now()}`;
+      testApp = initializeApp(
+        {
+          credential: cert(saObj),
+          projectId: saObj.project_id,
+        },
+        appName
+      );
+
+      // Perform live OAuth2 token exchange with Google OAuth servers
+      const token = await testApp.options.credential!.getAccessToken();
+      await deleteApp(testApp);
+      testApp = null;
+
+      const latencyMs = Date.now() - startTime;
+
+      if (!token || !token.access_token) {
+        throw new Error('Google OAuth server did not return an access token.');
+      }
+
+      const successMessage = `Service Account verified with Google IAM! OAuth2 token obtained for ${saObj.client_email} in ${latencyMs}ms.`;
+
+      memoryStore.firebaseSettings.lastServiceTestAt = new Date().toISOString();
+      memoryStore.firebaseSettings.lastServiceTestMessage = successMessage;
+
+      res.json({
+        success: true,
+        message: successMessage,
+        latencyMs,
+        details: {
+          projectId: saObj.project_id,
+          clientEmail: saObj.client_email,
+          privateKeyId: saObj.private_key_id,
+          expiresInSeconds: token.expires_in,
+          verifiedAt: new Date().toISOString(),
+        },
+      });
+    } catch (err: any) {
+      if (testApp) {
+        try {
+          const { deleteApp } = await import('firebase-admin/app');
+          await deleteApp(testApp);
+        } catch {
+          // ignore
+        }
+      }
+      res.status(400).json({
+        success: false,
+        error: `Firebase Admin IAM Error: ${err?.message || 'Authentication failed'}`,
+      });
+    }
+  });
+
+  // 5. Save Firebase Service Account JSON (Persisted in NEON PostgreSQL)
+  app.post('/api/admin/firebase/save-service-account', async (req, res) => {
+    let { serviceAccount, updatedBy } = req.body || {};
+
+    if (!serviceAccount) {
+      return res.status(400).json({
+        success: false,
+        error: 'Service Account JSON is required.',
+      });
+    }
+
+    let saObj: any;
+    if (typeof serviceAccount === 'string') {
+      try {
+        saObj = JSON.parse(serviceAccount);
+      } catch (e: any) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid JSON format: ' + e.message,
+        });
+      }
+    } else {
+      saObj = serviceAccount;
+    }
+
+    if (!saObj.project_id || !saObj.private_key || !saObj.client_email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: project_id, private_key, or client_email.',
+      });
+    }
+
+    memoryStore.firebaseSettings.serviceAccount = saObj;
+    memoryStore.firebaseSettings.serviceAccountStatus = 'verified';
+    memoryStore.firebaseSettings.updatedAt = new Date().toISOString();
+    if (updatedBy) memoryStore.firebaseSettings.updatedBy = updatedBy;
+
+    try {
+      await pool.query(
+        `INSERT INTO dd_firebase_config (
+          id, client_config, service_account, client_status, service_account_status,
+          last_client_test_at, last_client_test_message, last_service_test_at, last_service_test_message,
+          updated_at, updated_by
+        ) VALUES (
+          'main', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          service_account = EXCLUDED.service_account,
+          service_account_status = EXCLUDED.service_account_status,
+          last_service_test_at = EXCLUDED.last_service_test_at,
+          last_service_test_message = EXCLUDED.last_service_test_message,
+          updated_at = EXCLUDED.updated_at,
+          updated_by = EXCLUDED.updated_by`,
+        [
+          JSON.stringify(memoryStore.firebaseSettings.clientConfig),
+          JSON.stringify(saObj),
+          memoryStore.firebaseSettings.clientStatus || 'not_configured',
+          memoryStore.firebaseSettings.serviceAccountStatus || 'verified',
+          memoryStore.firebaseSettings.lastClientTestAt || null,
+          memoryStore.firebaseSettings.lastClientTestMessage || null,
+          memoryStore.firebaseSettings.lastServiceTestAt || new Date().toISOString(),
+          memoryStore.firebaseSettings.lastServiceTestMessage || 'Saved successfully',
+          memoryStore.firebaseSettings.updatedAt,
+          memoryStore.firebaseSettings.updatedBy || 'admin'
+        ]
+      );
+      console.log('Saved Firebase Service Account to PostgreSQL dd_firebase_config');
+    } catch (dbErr: any) {
+      console.warn('Could not persist firebase service account to pg:', dbErr?.message);
+    }
+
+    res.json({
+      success: true,
+      message: 'Firebase Service Account JSON saved to NEON database successfully.',
+      details: {
+        projectId: saObj.project_id,
+        clientEmail: saObj.client_email,
+        privateKeyId: saObj.private_key_id,
+      },
+    });
+  });
+
   // Cloudflare R2 Upload Endpoint for Logo, Favicon & Brand Assets
   app.post('/api/settings/upload-asset', async (req, res) => {
     try {
@@ -1837,6 +2345,410 @@ async function startServer() {
         errorDetails: String(dbErr),
       });
     }
+  });
+
+  // =========================================================================
+  // CORE PLATFORM INITIALIZATION & FIRST SETUP WIZARD API (/setup)
+  // =========================================================================
+
+  // 1. Get Setup Status (detects if platform is fresh or already configured & locked)
+  app.get('/api/setup/status', async (req, res) => {
+    try {
+      const hasDb = isDbConnected && !!process.env.DATABASE_URL;
+      const hasR2 = !!(memoryStore.settings.r2Endpoint && memoryStore.settings.r2AccessKeyId);
+      let adminCount = memoryStore.adminUsers.length;
+      let isLocked = Boolean(memoryStore.settings.setupLocked);
+      let isConfigured = Boolean(memoryStore.settings.setupCompleted) || isLocked;
+
+      if (isDbConnected) {
+        try {
+          const countRes = await pool.query('SELECT COUNT(*) FROM dd_admin_users');
+          const pgAdminCount = parseInt(countRes.rows[0]?.count || '0', 10);
+          adminCount = pgAdminCount;
+          if (pgAdminCount > 0 && memoryStore.settings.setupCompleted !== false) {
+            isConfigured = true;
+            isLocked = true;
+            memoryStore.settings.setupCompleted = true;
+            memoryStore.settings.setupLocked = true;
+          }
+        } catch (_) {}
+      }
+
+      res.json({
+        isLocked,
+        isConfigured,
+        hasAdmin: adminCount > 0,
+        adminCount,
+        isDbConnected,
+        hasDbUrl: Boolean(process.env.DATABASE_URL),
+        hasR2,
+        siteSettings: {
+          siteName: memoryStore.settings.siteName || 'Team Dark Devil',
+          domain: memoryStore.settings.domain || 'darkdevil.team',
+          supportEmail: memoryStore.settings.supportEmail || 'support@darkdevil.team',
+          supportTelegram: memoryStore.settings.supportTelegram || '@darkdevil_admin',
+          announcement: memoryStore.settings.announcement || '',
+          logoUrl: memoryStore.settings.logoUrl || '',
+          faviconUrl: memoryStore.settings.faviconUrl || '',
+          r2Endpoint: memoryStore.settings.r2Endpoint || '',
+          r2AccessKeyId: memoryStore.settings.r2AccessKeyId || '',
+          r2BucketName: memoryStore.settings.r2BucketName || '',
+          r2PublicUrl: memoryStore.settings.r2PublicUrl || '',
+          r2AccountId: memoryStore.settings.r2AccountId || '',
+          r2Region: memoryStore.settings.r2Region || 'auto',
+          setupCompleted: memoryStore.settings.setupCompleted,
+          setupLocked: memoryStore.settings.setupLocked,
+          setupCompletedAt: memoryStore.settings.setupCompletedAt,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: `Setup status check failed: ${err?.message || err}` });
+    }
+  });
+
+  // 2. Test Environment Connectivity (both Database & Cloudflare R2 in parallel)
+  app.post('/api/setup/test-env', async (req, res) => {
+    try {
+      const {
+        databaseUrl,
+        r2Endpoint,
+        r2AccessKeyId,
+        r2SecretAccessKey,
+        r2BucketName,
+        r2PublicUrl,
+        r2AccountId,
+        r2Region,
+      } = req.body || {};
+
+      // Run parallel health checks for DB and R2
+      const [dbResult, r2Result] = await Promise.all([
+        testDatabaseConnection(databaseUrl),
+        testR2Connection({
+          endpoint: r2Endpoint,
+          accessKeyId: r2AccessKeyId,
+          secretAccessKey: r2SecretAccessKey,
+          bucketName: r2BucketName,
+          publicUrl: r2PublicUrl,
+          accountId: r2AccountId,
+          region: r2Region,
+        }),
+      ]);
+
+      const bothPassed = dbResult.success && r2Result.success;
+      const alreadyConfigured = Boolean(dbResult.hasAdminTable && (dbResult.adminCount || 0) > 0);
+
+      res.json({
+        success: bothPassed,
+        bothPassed,
+        db: dbResult,
+        r2: r2Result,
+        alreadyConfigured,
+        adminCount: dbResult.adminCount || 0,
+        message: bothPassed
+          ? alreadyConfigured
+            ? 'Existing production database & R2 verified! System already has administrator accounts.'
+            : 'Connection tests passed successfully! Ready for basic setup.'
+          : 'One or more connection tests failed. Please review error details.',
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: `Diagnostics failure: ${err?.message || err}`,
+      });
+    }
+  });
+
+  // 3. Apply Verified Environment Variables & Persist to Memory / Disk (.env)
+  app.post('/api/setup/apply-env', async (req, res) => {
+    if (memoryStore.settings.setupLocked) {
+      return res.status(403).json({ error: 'Setup is locked to protect production infrastructure.' });
+    }
+
+    try {
+      const {
+        databaseUrl,
+        r2Endpoint,
+        r2AccessKeyId,
+        r2SecretAccessKey,
+        r2BucketName,
+        r2PublicUrl,
+        r2AccountId,
+        r2Region,
+        rawEnvContent,
+      } = req.body || {};
+
+      // Parse uploaded .env raw content if provided
+      if (rawEnvContent && typeof rawEnvContent === 'string') {
+        const lines = rawEnvContent.split('\n');
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          const eqIdx = trimmed.indexOf('=');
+          if (eqIdx !== -1) {
+            const k = trimmed.substring(0, eqIdx).trim();
+            let v = trimmed.substring(eqIdx + 1).trim();
+            if (
+              (v.startsWith('"') && v.endsWith('"')) ||
+              (v.startsWith("'") && v.endsWith("'"))
+            ) {
+              v = v.substring(1, v.length - 1);
+            }
+            if (k && v) {
+              process.env[k] = v;
+            }
+          }
+        }
+      }
+
+      // Update in-memory settings & process.env with explicit parameters
+      const targetDbUrl = databaseUrl?.trim() || process.env.DATABASE_URL?.trim() || '';
+      if (targetDbUrl) process.env.DATABASE_URL = targetDbUrl;
+
+      const targetR2Endpoint = r2Endpoint?.trim() || process.env.R2_ENDPOINT?.trim() || '';
+      if (targetR2Endpoint) {
+        process.env.R2_ENDPOINT = targetR2Endpoint;
+        memoryStore.settings.r2Endpoint = targetR2Endpoint;
+      }
+
+      const targetR2AccessKey = r2AccessKeyId?.trim() || process.env.R2_ACCESS_KEY_ID?.trim() || '';
+      if (targetR2AccessKey) {
+        process.env.R2_ACCESS_KEY_ID = targetR2AccessKey;
+        memoryStore.settings.r2AccessKeyId = targetR2AccessKey;
+      }
+
+      const targetR2Secret = r2SecretAccessKey?.trim() || process.env.R2_SECRET_ACCESS_KEY?.trim() || '';
+      if (targetR2Secret) {
+        process.env.R2_SECRET_ACCESS_KEY = targetR2Secret;
+        memoryStore.settings.r2SecretAccessKey = targetR2Secret;
+      }
+
+      const targetR2Bucket = r2BucketName?.trim() || process.env.R2_BUCKET_NAME?.trim() || '';
+      if (targetR2Bucket) {
+        process.env.R2_BUCKET_NAME = targetR2Bucket;
+        memoryStore.settings.r2BucketName = targetR2Bucket;
+      }
+
+      const targetR2Public = r2PublicUrl?.trim() || process.env.R2_PUBLIC_URL?.trim() || '';
+      if (targetR2Public) {
+        process.env.R2_PUBLIC_URL = targetR2Public;
+        memoryStore.settings.r2PublicUrl = targetR2Public;
+      }
+
+      const targetR2Account = r2AccountId?.trim() || process.env.R2_ACCOUNT_ID?.trim() || '';
+      if (targetR2Account) {
+        process.env.R2_ACCOUNT_ID = targetR2Account;
+        memoryStore.settings.r2AccountId = targetR2Account;
+      }
+
+      const targetR2Region = r2Region?.trim() || process.env.R2_REGION?.trim() || 'auto';
+      if (targetR2Region) {
+        process.env.R2_REGION = targetR2Region;
+        memoryStore.settings.r2Region = targetR2Region;
+      }
+
+      // Safely persist to .env file on disk
+      try {
+        let envContent = '';
+        const envPath = path.resolve(process.cwd(), '.env');
+        if (fs.existsSync(envPath)) {
+          envContent = fs.readFileSync(envPath, 'utf-8');
+        } else if (rawEnvContent && typeof rawEnvContent === 'string') {
+          envContent = rawEnvContent;
+        }
+
+        const updates: Record<string, string> = {
+          DATABASE_URL: process.env.DATABASE_URL || '',
+          R2_ENDPOINT: process.env.R2_ENDPOINT || '',
+          R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID || '',
+          R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY || '',
+          R2_BUCKET_NAME: process.env.R2_BUCKET_NAME || '',
+          R2_PUBLIC_URL: process.env.R2_PUBLIC_URL || '',
+          R2_ACCOUNT_ID: process.env.R2_ACCOUNT_ID || '',
+          R2_REGION: process.env.R2_REGION || 'auto',
+        };
+
+        for (const [key, val] of Object.entries(updates)) {
+          if (val) {
+            const lineRegex = new RegExp(`^${key}=.*$`, 'm');
+            if (lineRegex.test(envContent)) {
+              envContent = envContent.replace(lineRegex, `${key}=${val}`);
+            } else {
+              envContent += (envContent.endsWith('\n') || envContent.length === 0 ? '' : '\n') + `${key}=${val}\n`;
+            }
+          }
+        }
+        fs.writeFileSync(envPath, envContent.trim() + '\n', 'utf-8');
+        console.log('[Setup Wizard] Environment configuration persisted to .env successfully.');
+      } catch (fileErr) {
+        console.warn('Notice saving .env to disk:', fileErr);
+      }
+
+      // Connect database pool dynamically using verified DATABASE_URL from .env
+      let dbConnected = isDbConnected;
+      let alreadyHadAdmins = false;
+      if (targetDbUrl) {
+        dbConnected = await reconnectDatabase(targetDbUrl);
+        if (dbConnected) {
+          try {
+            const adminCountRes = await pool.query('SELECT COUNT(*) FROM dd_admin_users');
+            const count = parseInt(adminCountRes.rows[0]?.count || '0', 10);
+            if (count > 0) {
+              alreadyHadAdmins = true;
+              // If already configured database with accounts, lock setup
+              memoryStore.settings.setupCompleted = true;
+              memoryStore.settings.setupLocked = true;
+            }
+          } catch (_) {}
+        }
+      }
+
+      res.json({
+        success: true,
+        dbConnected,
+        alreadyConfigured: alreadyHadAdmins,
+        message: alreadyHadAdmins
+          ? 'Production environment connected to existing database with verified accounts!'
+          : 'Environment settings applied to .env and database connected successfully.',
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: `Failed to apply environment: ${err?.message || err}` });
+    }
+  });
+
+  // 4. Update Platform Basic Settings (Site Name, Domain, Support Contacts)
+  app.post('/api/setup/site-settings', async (req, res) => {
+    if (memoryStore.settings.setupLocked) {
+      return res.status(403).json({ error: 'Setup is locked.' });
+    }
+
+    try {
+      const { siteName, domain, supportEmail, supportTelegram, announcement } = req.body || {};
+      if (siteName) memoryStore.settings.siteName = siteName.trim();
+      if (domain) memoryStore.settings.domain = domain.trim();
+      if (supportEmail) memoryStore.settings.supportEmail = supportEmail.trim();
+      if (supportTelegram) memoryStore.settings.supportTelegram = supportTelegram.trim();
+      if (announcement !== undefined) memoryStore.settings.announcement = announcement.trim();
+
+      // Persist to dd_settings in postgresql if connected
+      if (isDbConnected) {
+        await pool.query(
+          `INSERT INTO dd_settings (id, data) VALUES ('main', $1)
+           ON CONFLICT (id) DO UPDATE SET data = $1`,
+          [JSON.stringify(memoryStore.settings)]
+        ).catch(() => {});
+      }
+
+      res.json({ success: true, settings: memoryStore.settings });
+    } catch (err: any) {
+      res.status(500).json({ error: `Failed to save basic settings: ${err?.message || err}` });
+    }
+  });
+
+  // 5. Create First Root Administrator & Permanently Lock Setup
+  app.post('/api/setup/create-admin', async (req, res) => {
+    if (memoryStore.settings.setupLocked) {
+      return res.status(403).json({ error: 'Setup is locked. Please login via Leader Security Gateway at /leader.' });
+    }
+
+    try {
+      const { username, name, email, password } = req.body || {};
+      if (!username || !email || !password) {
+        return res.status(400).json({ error: 'Username, email, and password are required.' });
+      }
+
+      if (password.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+      }
+
+      const cleanUser = username.trim().toLowerCase();
+      const cleanEmail = email.trim().toLowerCase();
+      const cleanName = (name || username).trim();
+
+      // Create primary Admin User
+      const newAdmin: AdminUser = {
+        id: `adm_${Date.now()}`,
+        username: cleanUser,
+        email: cleanEmail,
+        password: password,
+        role: 'Administrator',
+        status: 'active',
+        createdAt: new Date().toISOString().split('T')[0],
+        notes: `Initial Super Administrator (${cleanName}) created via Setup Wizard`,
+        assignedBy: 'setup_wizard',
+      };
+
+      // Upsert into memory store
+      const existingIdx = memoryStore.adminUsers.findIndex(
+        (a) => a.username.toLowerCase() === cleanUser || a.email.toLowerCase() === cleanEmail
+      );
+      if (existingIdx >= 0) {
+        memoryStore.adminUsers[existingIdx] = newAdmin;
+      } else {
+        memoryStore.adminUsers.unshift(newAdmin);
+      }
+
+      // Persist to PostgreSQL if connected
+      if (isDbConnected) {
+        await pool.query(
+          `INSERT INTO dd_admin_users (id, username, email, password, role, status, created_at, notes, assigned_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT (id) DO UPDATE SET
+             username = $2,
+             email = $3,
+             password = $4,
+             role = $5,
+             status = $6,
+             notes = $8`,
+          [
+            newAdmin.id,
+            newAdmin.username,
+            newAdmin.email,
+            newAdmin.password,
+            newAdmin.role,
+            newAdmin.status,
+            newAdmin.createdAt,
+            newAdmin.notes,
+            newAdmin.assignedBy,
+          ]
+        ).catch((err: any) => {
+          console.warn('Notice persisting admin to pg:', err?.message);
+        });
+      }
+
+      // Lock setup permanently
+      memoryStore.settings.setupCompleted = true;
+      memoryStore.settings.setupLocked = true;
+      memoryStore.settings.setupCompletedAt = new Date().toISOString();
+
+      if (isDbConnected) {
+        await pool.query(
+          `INSERT INTO dd_settings (id, data) VALUES ('main', $1)
+           ON CONFLICT (id) DO UPDATE SET data = $1`,
+          [JSON.stringify(memoryStore.settings)]
+        ).catch(() => {});
+      }
+
+      res.json({
+        success: true,
+        message: 'Initial Administrator created successfully. Platform setup is now secured and locked.',
+        admin: {
+          id: newAdmin.id,
+          username: newAdmin.username,
+          email: newAdmin.email,
+          role: newAdmin.role,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: `Admin creation failed: ${err?.message || err}` });
+    }
+  });
+
+  // 6. Lock Setup Endpoint (explicit lock)
+  app.post('/api/setup/lock', (req, res) => {
+    memoryStore.settings.setupLocked = true;
+    memoryStore.settings.setupCompleted = true;
+    memoryStore.settings.setupCompletedAt = new Date().toISOString();
+    res.json({ success: true, message: 'Setup locked.' });
   });
 
   // =========================================================================

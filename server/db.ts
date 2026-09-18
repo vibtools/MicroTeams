@@ -17,94 +17,62 @@ import {
   SiteSettings,
   SystemBackupItem,
   LeaderboardEntry,
+  FirebaseSettings,
 } from '../src/types.js';
 
 dotenv.config();
 
 const { Pool } = pg;
 
-const connectionString =
-  process.env.DATABASE_URL ||
-  'postgresql://neondb_owner:npg_fLuYHG6dy7hs@ep-dawn-firefly-b3rxe5jo-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+export let isDbConnected = false;
+let realPool: pg.Pool | null = null;
 
-export const pool = new Pool({
-  connectionString,
-  ssl: {
-    rejectUnauthorized: false,
+if (process.env.DATABASE_URL) {
+  try {
+    realPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL.includes('sslmode=require') || process.env.PGSSLMODE === 'require'
+        ? { rejectUnauthorized: false }
+        : undefined,
+      connectionTimeoutMillis: 3000,
+      idleTimeoutMillis: 30000,
+      max: 10,
+    });
+  } catch (poolErr) {
+    console.warn('PostgreSQL pool creation notice:', poolErr);
+    realPool = null;
+  }
+}
+
+export const pool = {
+  query: async (queryTextOrConfig: any, values?: any[]): Promise<any> => {
+    if (!isDbConnected || !realPool) {
+      return { rows: [], rowCount: 0 };
+    }
+    try {
+      return await realPool.query(queryTextOrConfig, values);
+    } catch (err: any) {
+      console.warn('DB query notice (resilient fallback):', err?.message || err);
+      return { rows: [], rowCount: 0 };
+    }
   },
-  connectionTimeoutMillis: 5000,
-  idleTimeoutMillis: 30000,
-  max: 10,
-});
+  connect: async (): Promise<any> => {
+    if (!isDbConnected || !realPool) {
+      return {
+        query: async () => ({ rows: [], rowCount: 0 }),
+        release: () => {},
+      };
+    }
+    return await realPool.connect();
+  },
+};
 
-// Resilient in-memory fallback state synchronized with database
+// Resilient in-memory state synchronized with database
 export const memoryStore = {
   // Dedicated Separate Table: dd_admin_users (Administrator, Leader, Sub Leader)
-  adminUsers: [
-    {
-      id: 'adm_1',
-      username: 'admin',
-      email: 'admin@darkdevil.team',
-      password: 'RajPass##321',
-      role: 'Administrator',
-      status: 'active',
-      createdAt: '2025-01-01',
-      notes: 'Head Platform Administrator & System Owner',
-    } as AdminUser,
-    {
-      id: 'adm_2',
-      username: 'leader_alex',
-      email: 'alex@darkdevil.team',
-      password: 'LeaderPass##1',
-      role: 'Leader',
-      status: 'active',
-      createdAt: '2025-02-01',
-      notes: 'Operations & Job Dispatch Leader',
-    } as AdminUser,
-    {
-      id: 'adm_3',
-      username: 'subleader_kane',
-      email: 'kane@darkdevil.team',
-      password: 'SubLeader##2',
-      role: 'Sub Leader',
-      status: 'active',
-      createdAt: '2025-03-01',
-      notes: 'Worker Quality & Verification Sub Leader',
-    } as AdminUser,
-  ],
+  adminUsers: [] as AdminUser[],
   // Dedicated Separate Table: dd_users (Workers only)
-  users: [
-    {
-      id: 'usr_worker1',
-      username: 'devil_shadow',
-      email: 'shadow@darkdevil.team',
-      password: 'user123',
-      role: 'worker',
-      status: 'active',
-      joiningDate: '2025-02-10',
-      maxDailyQuota: 2000,
-      notes: 'Top email sender',
-      todayJobsCount: 4,
-      totalJobsCount: 88,
-      totalCollectedData: 14500,
-      totalUsedData: 13200,
-    } as User,
-    {
-      id: 'usr_worker2',
-      username: 'viper_sms',
-      email: 'viper@darkdevil.team',
-      password: 'user123',
-      role: 'worker',
-      status: 'active',
-      joiningDate: '2025-03-01',
-      maxDailyQuota: 1500,
-      notes: 'SMS specialist',
-      todayJobsCount: 3,
-      totalJobsCount: 42,
-      totalCollectedData: 8900,
-      totalUsedData: 7800,
-    } as User,
-  ],
+  users: [] as User[],
   jobs: [] as Job[],
   dataFiles: [] as DataFile[],
   userBatches: [] as UserCollectedBatch[],
@@ -170,19 +138,39 @@ export const memoryStore = {
     r2Endpoint: process.env.R2_ENDPOINT || '',
     r2AccessKeyId: process.env.R2_ACCESS_KEY_ID || '',
     r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
-    r2BucketName: process.env.R2_BUCKET_NAME || 'darkdevil-assets',
+    r2BucketName: process.env.R2_BUCKET_NAME || '',
     r2PublicUrl: process.env.R2_PUBLIC_URL || '',
     logoUrl: '',
     faviconUrl: '',
   } as SiteSettings,
   systemBackups: [] as SystemBackupItem[],
+  firebaseSettings: {
+    clientConfig: {
+      apiKey: 'AIzaSyAQY0GEBJuYsE3dO5L-Y3iT832Wfc4t1ag',
+      authDomain: 'teamchat-b81fe.firebaseapp.com',
+      projectId: 'teamchat-b81fe',
+      storageBucket: 'teamchat-b81fe.firebasestorage.app',
+      messagingSenderId: '1049335643050',
+      appId: '1:1049335643050:web:ff97c01ce85718082a89d3',
+    },
+    serviceAccount: null,
+    clientStatus: 'not_configured',
+    serviceAccountStatus: 'not_configured',
+  } as FirebaseSettings,
 };
 
 // Initialize PostgreSQL database schema if available
 export async function initializeDatabase() {
+  if (!process.env.DATABASE_URL || !realPool) {
+    console.log('[AI Studio] PostgreSQL not configured (DATABASE_URL not set) — operating in fast resilient in-memory mode.');
+    return;
+  }
+
+  let client: pg.PoolClient | null = null;
   try {
-    const client = await pool.connect();
-    console.log('Successfully connected to Neon PostgreSQL database!');
+    client = await realPool.connect();
+    isDbConnected = true;
+    console.log('Successfully connected to PostgreSQL database!');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS dd_admin_users (
@@ -355,6 +343,20 @@ export async function initializeDatabase() {
         data JSONB NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS dd_firebase_config (
+        id VARCHAR(32) PRIMARY KEY DEFAULT 'main',
+        client_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+        service_account JSONB,
+        client_status VARCHAR(32) DEFAULT 'not_configured',
+        service_account_status VARCHAR(32) DEFAULT 'not_configured',
+        last_client_test_at VARCHAR(64),
+        last_client_test_message TEXT,
+        last_service_test_at VARCHAR(64),
+        last_service_test_message TEXT,
+        updated_at VARCHAR(64),
+        updated_by VARCHAR(64)
+      );
+
       ALTER TABLE dd_users ADD COLUMN IF NOT EXISTS first_name VARCHAR(128);
       ALTER TABLE dd_users ADD COLUMN IF NOT EXISTS last_name VARCHAR(128);
       ALTER TABLE dd_users ADD COLUMN IF NOT EXISTS phone VARCHAR(64);
@@ -371,35 +373,7 @@ export async function initializeDatabase() {
     `);
 
     // 1. Separate Table: dd_admin_users (Administrator, Leader, Sub Leader)
-    const adminCountRes = await client.query('SELECT COUNT(*) FROM dd_admin_users');
-    if (parseInt(adminCountRes.rows[0].count, 10) === 0) {
-      for (const adm of memoryStore.adminUsers) {
-        await client.query(
-          `INSERT INTO dd_admin_users (id, username, email, password, role, status, created_at, notes, assigned_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           ON CONFLICT (id) DO NOTHING`,
-          [
-            adm.id,
-            adm.username,
-            adm.email,
-            adm.password,
-            adm.role,
-            adm.status,
-            adm.createdAt,
-            adm.notes || '',
-            adm.assignedBy || 'system',
-          ]
-        );
-      }
-    } else {
-      // Ensure primary admin credentials & role
-      await client.query(
-        "UPDATE dd_admin_users SET password = $1, role = 'Administrator', status = 'active' WHERE username = 'admin'",
-        ['RajPass##321']
-      );
-    }
-
-    // Load admin users from PostgreSQL into memory store
+    // Load legitimate admin accounts from PostgreSQL into memory store (no hardcoded accounts seeded)
     const loadedAdmins = await client.query('SELECT * FROM dd_admin_users ORDER BY created_at ASC');
     if (loadedAdmins.rows.length > 0) {
       memoryStore.adminUsers = loadedAdmins.rows.map((row) => ({
@@ -415,65 +389,39 @@ export async function initializeDatabase() {
         assignedBy: row.assigned_by || undefined,
       }));
       console.log(`Loaded ${memoryStore.adminUsers.length} admin accounts from dd_admin_users`);
+    } else {
+      memoryStore.adminUsers = [];
     }
 
     // 2. Separate Table: dd_users (Workers only - clean separation from admin users)
     // Remove any legacy admin record from dd_users if present
     await client.query("DELETE FROM dd_users WHERE username = 'admin' OR role = 'admin'");
 
-    const userCountRes = await client.query('SELECT COUNT(*) FROM dd_users');
-    if (parseInt(userCountRes.rows[0].count, 10) === 0) {
-      for (const u of memoryStore.users) {
-        await client.query(
-          `INSERT INTO dd_users (id, username, email, password, first_name, last_name, phone, address, avatar_url, role, status, joining_date, max_daily_quota, notes, today_jobs_count, total_jobs_count, total_collected_data, total_used_data)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-           ON CONFLICT (id) DO NOTHING`,
-          [
-            u.id,
-            u.username,
-            u.email,
-            u.password,
-            u.firstName || '',
-            u.lastName || '',
-            u.phone || '',
-            u.address || '',
-            u.avatarUrl || '',
-            u.role,
-            u.status,
-            u.joiningDate,
-            u.maxDailyQuota,
-            u.notes || '',
-            u.todayJobsCount,
-            u.totalJobsCount,
-            u.totalCollectedData,
-            u.totalUsedData,
-          ]
-        );
-      }
+    // Load legitimate workers from PostgreSQL into memory store (no hardcoded workers seeded)
+    const loadedUsers = await client.query("SELECT * FROM dd_users WHERE role = 'worker' ORDER BY joining_date ASC");
+    if (loadedUsers.rows.length > 0) {
+      memoryStore.users = loadedUsers.rows.map((row) => ({
+        id: row.id,
+        username: row.username,
+        email: row.email,
+        password: row.password,
+        firstName: row.first_name || '',
+        lastName: row.last_name || '',
+        phone: row.phone || '',
+        address: row.address || '',
+        avatarUrl: row.avatar_url || '',
+        role: 'worker',
+        status: row.status,
+        joiningDate: row.joining_date,
+        maxDailyQuota: row.max_daily_quota,
+        notes: row.notes || '',
+        todayJobsCount: row.today_jobs_count || 0,
+        totalJobsCount: row.total_jobs_count || 0,
+        totalCollectedData: row.total_collected_data || 0,
+        totalUsedData: row.total_used_data || 0,
+      }));
     } else {
-      const loadedUsers = await client.query("SELECT * FROM dd_users WHERE role = 'worker' ORDER BY joining_date ASC");
-      if (loadedUsers.rows.length > 0) {
-        memoryStore.users = loadedUsers.rows.map((row) => ({
-          id: row.id,
-          username: row.username,
-          email: row.email,
-          password: row.password,
-          firstName: row.first_name || '',
-          lastName: row.last_name || '',
-          phone: row.phone || '',
-          address: row.address || '',
-          avatarUrl: row.avatar_url || '',
-          role: 'worker',
-          status: row.status,
-          joiningDate: row.joining_date,
-          maxDailyQuota: row.max_daily_quota,
-          notes: row.notes || '',
-          todayJobsCount: row.today_jobs_count || 0,
-          totalJobsCount: row.total_jobs_count || 0,
-          totalCollectedData: row.total_collected_data || 0,
-          totalUsedData: row.total_used_data || 0,
-        }));
-      }
+      memoryStore.users = [];
     }
 
     // Restore saved settings if present
@@ -485,6 +433,29 @@ export async function initializeDatabase() {
       }
     } catch (settErr: any) {
       console.warn('Settings load notice:', settErr?.message);
+    }
+
+    // Restore Firebase settings if present
+    try {
+      const fbRes = await client.query('SELECT * FROM dd_firebase_config WHERE id = $1', ['main']);
+      if (fbRes.rows.length > 0) {
+        const row = fbRes.rows[0];
+        memoryStore.firebaseSettings = {
+          clientConfig: row.client_config || memoryStore.firebaseSettings.clientConfig,
+          serviceAccount: row.service_account || null,
+          clientStatus: row.client_status || 'not_configured',
+          serviceAccountStatus: row.service_account_status || 'not_configured',
+          lastClientTestAt: row.last_client_test_at || undefined,
+          lastClientTestMessage: row.last_client_test_message || undefined,
+          lastServiceTestAt: row.last_service_test_at || undefined,
+          lastServiceTestMessage: row.last_service_test_message || undefined,
+          updatedAt: row.updated_at || undefined,
+          updatedBy: row.updated_by || undefined,
+        };
+        console.log('Restored Firebase configuration from PostgreSQL dd_firebase_config');
+      }
+    } catch (fbErr: any) {
+      console.warn('Firebase config load notice:', fbErr?.message);
     }
 
     // Restore arrays from DB
@@ -591,9 +562,131 @@ export async function initializeDatabase() {
       console.warn('DB load notice:', dbErr?.message);
     }
 
-    client.release();
-    console.log('Neon database tables ready!');
+    if (client) {
+      client.release();
+    }
+    console.log('PostgreSQL database tables ready!');
   } catch (err: any) {
-    console.warn('PostgreSQL initialization warning (continuing with in-memory resilient mirror):', err?.message || err);
+    isDbConnected = false;
+    if (client) {
+      try { client.release(); } catch (_) {}
+    }
+    console.warn('PostgreSQL initialization notice (continuing with in-memory resilient mirror):', err?.message || err);
   }
 }
+
+/**
+ * Diagnostics probe for checking a PostgreSQL connection
+ */
+export async function testDatabaseConnection(connectionString?: string) {
+  const connStr = connectionString?.trim() || process.env.DATABASE_URL?.trim();
+  if (!connStr) {
+    return {
+      success: false,
+      latencyMs: 0,
+      message: 'No DATABASE_URL provided or configured.',
+      error: 'Empty connection string',
+    };
+  }
+
+  const startTime = Date.now();
+  let tempPool: pg.Pool | null = null;
+  try {
+    tempPool = new Pool({
+      connectionString: connStr,
+      ssl: connStr.includes('sslmode=require') || process.env.PGSSLMODE === 'require'
+        ? { rejectUnauthorized: false }
+        : undefined,
+      connectionTimeoutMillis: 5000,
+      idleTimeoutMillis: 5000,
+      max: 2,
+    });
+
+    const client = await tempPool.connect();
+    const dbResult = await client.query(`
+      SELECT 
+        NOW() as current_time, 
+        version() as db_version,
+        current_database() as db_name
+    `);
+
+    // Check tables in public schema
+    const tablesQuery = await client.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public'
+    `);
+    const tableNames = tablesQuery.rows.map((r: any) => r.table_name);
+
+    let adminCount = 0;
+    const hasAdminTable = tableNames.includes('dd_admin_users');
+    if (hasAdminTable) {
+      try {
+        const adminRes = await client.query('SELECT COUNT(*) FROM dd_admin_users');
+        adminCount = parseInt(adminRes.rows[0]?.count || '0', 10);
+      } catch (_) {}
+    }
+
+    client.release();
+    await tempPool.end();
+
+    const latencyMs = Date.now() - startTime;
+    return {
+      success: true,
+      latencyMs,
+      databaseName: dbResult.rows[0]?.db_name || 'postgresql',
+      version: dbResult.rows[0]?.db_version?.split(' ')?.[0] || 'PostgreSQL',
+      serverTime: dbResult.rows[0]?.current_time,
+      tablesCount: tableNames.length,
+      tables: tableNames,
+      hasAdminTable,
+      adminCount,
+      message: `PostgreSQL connection verified! (Latency: ${latencyMs}ms, ${tableNames.length} tables found)`,
+    };
+  } catch (err: any) {
+    if (tempPool) {
+      try { await tempPool.end(); } catch (_) {}
+    }
+    const latencyMs = Date.now() - startTime;
+    return {
+      success: false,
+      latencyMs,
+      message: `Connection failed: ${err?.message || err}`,
+      error: String(err),
+    };
+  }
+}
+
+/**
+ * Reconnect PostgreSQL pool dynamically with new credentials and initialize tables
+ */
+export async function reconnectDatabase(newConnectionString: string): Promise<boolean> {
+  if (!newConnectionString) return false;
+
+  if (realPool) {
+    try { await realPool.end(); } catch (_) {}
+    realPool = null;
+    isDbConnected = false;
+  }
+
+  process.env.DATABASE_URL = newConnectionString;
+
+  try {
+    realPool = new Pool({
+      connectionString: newConnectionString,
+      ssl: newConnectionString.includes('sslmode=require') || process.env.PGSSLMODE === 'require'
+        ? { rejectUnauthorized: false }
+        : undefined,
+      connectionTimeoutMillis: 5000,
+      idleTimeoutMillis: 30000,
+      max: 10,
+    });
+
+    await initializeDatabase();
+    return isDbConnected;
+  } catch (err) {
+    console.error('Failed to reconnect database:', err);
+    return false;
+  }
+}
+

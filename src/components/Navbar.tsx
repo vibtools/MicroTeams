@@ -12,12 +12,12 @@ import {
 } from 'lucide-react';
 import { User } from '../types';
 
-export type NavViewMode = 'landing' | 'services' | 'apply' | 'contact' | 'user' | 'not-found';
+export type NavViewMode = 'landing' | 'services' | 'apply' | 'contact' | 'user' | 'setup' | 'not-found';
 
 interface NavbarProps {
   currentUser: User | null;
   currentView: NavViewMode;
-  onNavigate: (view: 'landing' | 'services' | 'apply' | 'contact' | 'user') => void;
+  onNavigate: (view: 'landing' | 'services' | 'apply' | 'contact' | 'user' | 'setup') => void;
   onOpenLogin: () => void;
   onLogout: () => void;
   siteSettings?: {
